@@ -75,6 +75,7 @@ var upgradeOptions = $("up-options");
 var loadingEl = $("loading");
 var pauseBtn = $("pause");
 var soundBtn = $("sound");
+var tipEl = $("tip");
 if (DBG) {
   const report = (text) => {
     let box = document.getElementById("err");
@@ -144,12 +145,18 @@ var state = {
   spawnTimer: 0,
   waveQuiet: 0,
   bossPending: false,
+  pressure: 0.5,
+  heavyCount: 0,
+  splitCount: 0,
+  wallCount: 0,
   fireTimer: 0,
   threats: 0,
   threatTimer: 0,
   shield: 0,
   buff: { over: 0, slow: 0 },
   up: { rate: 0, dmg: 0, stream: 0 },
+  tipShown: false,
+  tipTimer: 0,
   resizes: 0,
   draws: 0
 };
@@ -513,9 +520,9 @@ var BOSSES = [
   { name: "\u9488\u96E8", code: "NEEDLE", color: "#ffb45e" },
   { name: "\u6F29\u6DA1", code: "VORTEX", color: "#c78bff" }
 ];
-var hpScale = () => 1 + (state.wave - 1) * 0.24;
-var bulletSpeed = () => Math.min(340, 168 + state.wave * 9);
-var rank = () => 1 + Math.min(1.5, (state.wave - 1) * 0.085);
+var hpScale = () => 1 + (state.wave - 1) * 0.22;
+var bulletSpeed = () => Math.min(310, 165 + state.wave * 8);
+var rank = () => 1 + Math.min(1.2, (state.wave - 1) * 0.075);
 function spawnEnemy(kind, x, y) {
   const spec = ENEMY[kind];
   const hp = spec.hp * hpScale();
@@ -557,7 +564,7 @@ function spawnEnemy(kind, x, y) {
 function spawnBoss() {
   const variant = ((Math.floor(state.wave / 4) - 1) % 3 + 3) % 3;
   const spec = BOSSES[variant];
-  const hp = 260 + state.wave * 40 + state.wave * state.wave * 6;
+  const hp = 230 + state.wave * 30 + state.wave * state.wave * 4;
   const e = {
     kind: "boss",
     tier: 8,
@@ -611,7 +618,7 @@ function shoot(x, y, angle, speed, kind = "orb") {
   // Never materialise on top of the player.
   if (Math.hypot(x - player.x, y - player.y) < 56) return;
   // Hard ceiling; the arena stays readable even on long endless runs.
-  if (ebullets.length > 320) return;
+  if (ebullets.length > 420) return;
 
   let vx = Math.cos(angle) * speed;
   let vy = Math.sin(angle) * speed;
@@ -626,10 +633,17 @@ function shoot(x, y, angle, speed, kind = "orb") {
   }
 
   // At most two bullets may be pointed exactly at your current spot inside a
-  // short window; without this, several enemies can stack a perfect wall.
+  // short window. Later ones are deflected, not dropped, so the unit still
+  // visibly fires instead of falling silent.
   if (hit && hit.d < 9 && hit.t < 1.6) {
-    if (state.threats >= 2) return;
-    state.threats += 1;
+    if (state.threats >= 2) {
+      const bent = angle + (Math.random() < 0.5 ? -1 : 1) * rand(0.12, 0.2);
+      const mag = Math.hypot(vx, vy) || speed;
+      vx = Math.cos(bent) * mag;
+      vy = Math.sin(bent) * mag;
+    } else {
+      state.threats += 1;
+    }
   }
 
   const r = kind === "needle" ? 5 : kind === "big" ? 9 : 6.4;
@@ -902,7 +916,7 @@ function updateEnemy(e, dt) {
         e.fire = 2 / rk;
         fireFan(e.x, e.y, 3, 0.3, bs * 0.92, "orb", 0.05);
       }
-      if (e.t > 10) e.leaving = true;
+      if (state.waveBudget <= 0 && e.t > 8) e.leaving = true;
     } else {
       e.y -= 100 * dt;
     }
@@ -916,7 +930,7 @@ function updateEnemy(e, dt) {
         e.fire = 2.15 / rk;
         fireFan(e.x, e.y, 5, 0.52, bs * 0.95, "orb", 0.04);
       }
-      if (e.t > 13) e.leaving = true;
+      if (state.waveBudget <= 0 && e.t > 10) e.leaving = true;
     } else {
       e.y -= 95 * dt;
     }
@@ -953,7 +967,7 @@ function updateEnemy(e, dt) {
         e.burst = 1.25 / rk;
         fireFan(e.x, e.y, 3, 0.32, bs, "needle", 0.03);
       }
-      if (e.t > 17) e.leaving = true;
+      if (state.waveBudget <= 0 && e.t > 12) e.leaving = true;
     } else {
       e.y -= 70 * dt;
     }
@@ -1071,6 +1085,7 @@ function healPlayer(amount, rewardIfFull) {
     return false;
   }
   state.lives = Math.min(LIVES, state.lives + amount);
+  state.pressure = clamp(state.pressure + 0.05, 0, 1);
   updateHud();
   hpEl.classList.add("is-heal");
   window.setTimeout(() => hpEl.classList.remove("is-heal"), 450);
@@ -1133,7 +1148,6 @@ var power = () => state.up.rate + state.up.dmg + state.up.stream + (state.buff.o
 function updatePlayer(dt) {
   if (state.invuln > 0) state.invuln -= dt;
   player.focus = keys.has("shift") || pointerDown;
-  const maxSpeed = player.focus ? 265 : 640;
   let tx = moveTarget.x;
   let ty = moveTarget.y;
   if (AUTOPILOT) {
@@ -1156,13 +1170,21 @@ function updatePlayer(dt) {
     tx = clamp(tx, 24, state.w - 24);
     ty = clamp(ty, 60, state.h - 60);
   }
-  const dx = tx - player.x;
-  const dy = ty - player.y;
-  const d = Math.hypot(dx, dy);
-  const step = Math.min(d, maxSpeed * dt);
-  if (d > 0.6) {
-    player.x += dx / d * step;
-    player.y += dy / d * step;
+  if (AUTOPILOT || player.focus) {
+    // Precise mode keeps the old damped follow, so a held Shift lets you nudge
+    // the ship without teleporting it onto a bullet.
+    const dx = tx - player.x;
+    const dy = ty - player.y;
+    const d = Math.hypot(dx, dy);
+    const step = Math.min(d, 300 * dt);
+    if (d > 0.6) {
+      player.x += dx / d * step;
+      player.y += dy / d * step;
+    }
+  } else {
+    // Normal mode: the ship sits exactly under the pointer, no lag.
+    player.x = tx;
+    player.y = ty;
   }
   player.x = clamp(player.x, 18, state.w - 18);
   player.y = clamp(player.y, 50, state.h - 26);
@@ -1241,6 +1263,7 @@ function damageEnemy(e, amount) {
   if (isBoss) {
     state.boss = null;
     bossbar.hidden = true;
+    state.pressure = clamp(state.pressure + 0.06, 0, 1);
     state.flash = Math.max(state.flash, 0.75);
     ebullets = [];
     healPlayer(1, false);
@@ -1305,6 +1328,7 @@ function hitPlayer() {
   burst(player.x, player.y, C.hurt, 22);
   resetChain();
   state.lives -= 1;
+  state.pressure = clamp(state.pressure - 0.12, 0, 1);
   updateHud();
   sfx.hit();
   if (state.lives === 1) sfx.alarm();
@@ -1328,7 +1352,10 @@ function updateWaveLabel() {
 }
 function startWave(n) {
   state.wave = n;
-  state.waveBudget = 32 + n * 12;
+  state.heavyCount = 0;
+  state.splitCount = 0;
+  state.wallCount = 0;
+  state.waveBudget = Math.round((32 + n * 12) * (0.9 + state.pressure * 0.2));
   state.spawnTimer = 1;
   state.waveQuiet = 0;
   state.bossPending = n % 4 === 0;
@@ -1350,6 +1377,12 @@ function startWave(n) {
   if (state.bossPending) sfx.warn();
   else sfx.wave();
 }
+function countSpawn(id) {
+  if (id === "heavy") state.heavyCount += 1;
+  else if (id === "split") state.splitCount += 1;
+  else if (id === "wall") state.wallCount += 1;
+}
+
 function updateWave(dt) {
   if (state.bossPending) {
     state.spawnTimer -= dt;
@@ -1361,24 +1394,36 @@ function updateWave(dt) {
   }
   if (state.waveBudget > 0) {
     state.spawnTimer -= dt;
-    const cap = 10 + Math.min(14, state.wave);
+    const cap = 9 + Math.min(9, Math.floor(state.wave * 0.7));
     if (state.spawnTimer <= 0 && enemies.length < cap) {
-      const options = FORMATIONS.filter((f) => f.minWave <= state.wave && f.cost <= state.waveBudget);
+      const heavyMax = state.wave < 8 ? 1 : 2;
+      const options = FORMATIONS.filter((f) => {
+        if (f.minWave > state.wave || f.cost > state.waveBudget) return false;
+        if (f.id === "heavy" && state.heavyCount >= heavyMax) return false;
+        if (f.id === "split" && state.splitCount >= 2) return false;
+        if (f.id === "wall" && state.wallCount >= 1) return false;
+        return true;
+      });
       if (options.length === 0) {
         state.waveBudget = 0;
       } else {
         const pack = options[Math.floor(Math.random() * options.length)];
         spawnFormation(pack.id);
+        countSpawn(pack.id);
         state.waveBudget -= pack.cost;
-        if (state.wave >= 4 && state.waveBudget >= 6 && enemies.length < cap - 5) {
-          const affordable = options.filter((f) => f.cost <= state.waveBudget);
-          const extra = affordable[Math.floor(Math.random() * affordable.length)];
+
+        // A second pack only from the light pool, and only once the run has
+        // warmed up; heavy packs never double up.
+        const light = ["swarm", "rush", "line", "snipe", "arc"];
+        if (state.wave >= 6 && state.pressure > 0.35 && light.includes(pack.id) && state.waveBudget >= 6 && enemies.length < cap - 4) {
+          const extraOptions = options.filter((f) => light.includes(f.id) && f.cost <= state.waveBudget);
+          const extra = extraOptions[Math.floor(Math.random() * extraOptions.length)];
           if (extra) {
             spawnFormation(extra.id);
             state.waveBudget -= extra.cost;
           }
         }
-        state.spawnTimer = Math.max(1.9, rand(2.8, 3.9) - state.wave * 0.045);
+        state.spawnTimer = Math.max(2, rand(2.9, 4) - state.wave * 0.04) * (1.05 - state.pressure * 0.12);
       }
     }
   }
@@ -1390,6 +1435,7 @@ function updateWave(dt) {
   }
 }
 function waveClear() {
+  state.pressure = clamp(state.pressure + 0.04, 0, 1);
   healPlayer(1, false);
   burst(player.x, player.y - 20, C.heat, 18);
   sfx.clear();
@@ -1548,6 +1594,10 @@ function resetRun() {
   state.banner = null;
   state.boss = null;
   state.bossPending = false;
+  state.pressure = 0.5;
+  state.heavyCount = 0;
+  state.splitCount = 0;
+  state.wallCount = 0;
   state.up = { rate: 0, dmg: 0, stream: 0 };
   enemies = [];
   ebullets = [];
@@ -1564,6 +1614,8 @@ function resetRun() {
   moveTarget = { x: player.x, y: player.y };
   bossbar.hidden = true;
   chainEl.textContent = "";
+  tipEl.hidden = true;
+  state.tipTimer = 0;
   grazeEl.textContent = "\u64E6\u5F39 0";
   waveEl.textContent = "W01 \xB7 \u6DF1\u7A7A";
   updatePower();
@@ -1579,17 +1631,25 @@ function startRun() {
   startWave(START_WAVE);
   updateHud();
   syncPauseButton();
+  if (!state.tipShown) {
+    state.tipShown = true;
+    state.tipTimer = 4.5;
+    tipEl.hidden = false;
+    tipEl.classList.add("is-in");
+  }
 }
 function togglePause() {
   if (state.mode === "playing") {
     state.mode = "paused";
+    moveTarget = { x: player.x, y: player.y };
     showGate({
       kicker: "\u6682\u505C \xB7 HOLD",
       title: "\u6682\u505C",
-      text: "\u8FD9\u4E00\u6B21\u51FA\u51FB\u505C\u5728\u8FD9\u91CC\u3002",
+      text: "\u53F3\u952E\u3001P \u6216 Esc \u7EE7\u7EED\u3002",
       actions: [
         { label: "\u7EE7\u7EED", primary: true, run: () => {
           state.mode = "playing";
+          moveTarget = { x: player.x, y: player.y };
           hideGate();
           syncPauseButton();
         } },
@@ -1598,6 +1658,7 @@ function togglePause() {
     });
   } else if (state.mode === "paused") {
     state.mode = "playing";
+    moveTarget = { x: player.x, y: player.y };
     hideGate();
   }
   syncPauseButton();
@@ -1685,8 +1746,12 @@ function burst(x, y, color, count) {
 }
 function pointerToWorld(event) {
   const rect = canvas.getBoundingClientRect();
-  moveTarget.x = clamp((event.clientX - rect.left) / rect.width * state.w, 18, state.w - 18);
-  moveTarget.y = clamp((event.clientY - rect.top) / rect.height * state.h, 20, state.h - 26);
+  pointer.x = clamp((event.clientX - rect.left) / rect.width * state.w, 18, state.w - 18);
+  pointer.y = clamp((event.clientY - rect.top) / rect.height * state.h, 20, state.h - 26);
+  // While paused, moving the mouse to a button must not drag the ship.
+  if (state.mode !== "playing") return;
+  moveTarget.x = pointer.x;
+  moveTarget.y = pointer.y;
 }
 function bindEvents() {
   stage.addEventListener("pointermove", (event) => pointerToWorld(event));
@@ -1703,7 +1768,10 @@ function bindEvents() {
   window.addEventListener("pointercancel", () => {
     pointerDown = false;
   });
-  stage.addEventListener("contextmenu", (event) => event.preventDefault());
+  stage.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    if (state.mode === "playing" || state.mode === "paused") togglePause();
+  });
   window.addEventListener("keydown", (event) => {
     const key = event.key.toLowerCase();
     if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) event.preventDefault();
@@ -1811,17 +1879,39 @@ function ensureAudio() {
   if (!audio) {
     try {
       audio = new (window.AudioContext || window.webkitAudioContext)();
-      master = audio.createGain();
-      master.gain.value = 0.5;
-      const comp = audio.createDynamicsCompressor();
-      comp.threshold.value = -20;
-      comp.knee.value = 12;
-      comp.ratio.value = 6;
-      comp.attack.value = 0.003;
-      comp.release.value = 0.25;
-      master.connect(comp).connect(audio.destination);
 
-      noiseBuf = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.4), audio.sampleRate);
+      const comp = audio.createDynamicsCompressor();
+      comp.threshold.value = -16;
+      comp.knee.value = 10;
+      comp.ratio.value = 4;
+      comp.attack.value = 0.004;
+      comp.release.value = 0.22;
+
+      const shaper = audio.createWaveShaper();
+      const curve = new Float32Array(1024);
+      for (let i = 0; i < 1024; i += 1) {
+        const x = i / 512 - 1;
+        curve[i] = Math.tanh(x * 2.2);
+      }
+      shaper.curve = curve;
+      shaper.oversample = "2x";
+
+      master = audio.createGain();
+      master.gain.value = 0.45;
+      master.connect(shaper).connect(comp);
+      comp.connect(audio.destination);
+
+      try {
+        const conv = audio.createConvolver();
+        conv.buffer = makeImpulse(0.9, 2.4);
+        const send = audio.createGain();
+        send.gain.value = 0.08;
+        master.connect(send).connect(conv).connect(comp);
+      } catch {
+        // Dry only if convolution is unavailable.
+      }
+
+      noiseBuf = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.5), audio.sampleRate);
       const data = noiseBuf.getChannelData(0);
       for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
     } catch {
@@ -1833,24 +1923,73 @@ function ensureAudio() {
   if (audio.state === "suspended") void audio.resume();
 }
 
+function makeImpulse(seconds, decay) {
+  const len = Math.floor(audio.sampleRate * seconds);
+  const buf = audio.createBuffer(2, len, audio.sampleRate);
+  for (let ch = 0; ch < 2; ch += 1) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < len; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / len) ** decay;
+  }
+  return buf;
+}
+
 const panOf = (x) => clamp((x - state.w / 2) / (state.w / 2), -1, 1) * 0.55;
 
-function blip(freq, duration, type = "square", gain = 0.03, slide = 0, pan = 0, delay = 0) {
+function blip(freq, duration, type = "square", gain = 0.03, slide = 0, pan = 0, delay = 0, cutoff = 0) {
+  if (!soundOn || !audio || !master) return;
+  const at = audio.currentTime + delay;
+  const cut = cutoff || Math.min(7000, freq * 9);
+
+  const filter = audio.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.Q.value = 0.7;
+  filter.frequency.setValueAtTime(cut, at);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(160, cut * 0.35), at + duration);
+
+  const amp = audio.createGain();
+  amp.gain.setValueAtTime(1e-4, at);
+  amp.gain.exponentialRampToValueAtTime(gain, at + 0.012);
+  amp.gain.exponentialRampToValueAtTime(1e-4, at + duration);
+
+  const panner = audio.createStereoPanner();
+  panner.pan.value = pan;
+  filter.connect(amp).connect(panner).connect(master);
+
+  const o1 = audio.createOscillator();
+  o1.type = type;
+  o1.frequency.setValueAtTime(freq, at);
+  if (slide) o1.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), at + duration);
+  o1.connect(filter);
+
+  const o2 = audio.createOscillator();
+  o2.type = type;
+  o2.frequency.setValueAtTime(freq * 1.007, at);
+  o2.detune.value = rand(-8, 8);
+  if (slide) o2.frequency.exponentialRampToValueAtTime(Math.max(30, (freq + slide) * 1.007), at + duration);
+  const blend = audio.createGain();
+  blend.gain.value = 0.5;
+  o2.connect(blend).connect(filter);
+
+  o1.start(at);
+  o2.start(at);
+  o1.stop(at + duration + 0.03);
+  o2.stop(at + duration + 0.03);
+}
+
+function sub(freq, duration, gain = 0.1, slide = 0, delay = 0) {
   if (!soundOn || !audio || !master) return;
   const at = audio.currentTime + delay;
   const osc = audio.createOscillator();
-  const amp = audio.createGain();
-  const panner = audio.createStereoPanner();
-  osc.type = type;
+  osc.type = "sine";
   osc.frequency.setValueAtTime(freq, at);
-  if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), at + duration);
+  if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(20, freq + slide), at + duration);
+  const amp = audio.createGain();
   amp.gain.setValueAtTime(1e-4, at);
-  amp.gain.exponentialRampToValueAtTime(gain, at + 0.008);
+  amp.gain.exponentialRampToValueAtTime(gain, at + 0.012);
   amp.gain.exponentialRampToValueAtTime(1e-4, at + duration);
-  panner.pan.value = pan;
-  osc.connect(amp).connect(panner).connect(master);
+  osc.connect(amp).connect(master);
   osc.start(at);
-  osc.stop(at + duration + 0.02);
+  osc.stop(at + duration + 0.03);
 }
 
 function noiseHit(duration, gain, cutoff, pan = 0, delay = 0) {
@@ -1862,7 +2001,7 @@ function noiseHit(duration, gain, cutoff, pan = 0, delay = 0) {
   const filter = audio.createBiquadFilter();
   filter.type = "lowpass";
   filter.frequency.setValueAtTime(cutoff, at);
-  filter.frequency.exponentialRampToValueAtTime(Math.max(120, cutoff * 0.35), at + duration);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(120, cutoff * 0.3), at + duration);
   const amp = audio.createGain();
   amp.gain.setValueAtTime(gain, at);
   amp.gain.exponentialRampToValueAtTime(1e-4, at + duration);
@@ -1875,85 +2014,101 @@ function noiseHit(duration, gain, cutoff, pan = 0, delay = 0) {
 
 var sfx = {
   start() {
-    blip(330, 0.1, "triangle", 0.05, 120);
-    blip(495, 0.14, "triangle", 0.05, 160, 0, 0.09);
+    blip(392, 0.14, "triangle", 0.06, 80, 0, 0, 1800);
+    blip(587, 0.2, "triangle", 0.05, 120, 0, 0.1, 2200);
+    sub(98, 0.26, 0.05, 20);
   },
   wave() {
-    blip(392, 0.09, "sine", 0.03, 40);
-    blip(523, 0.12, "sine", 0.03, 50, 0, 0.1);
+    blip(440, 0.12, "sine", 0.04, 40, 0, 0, 1400);
+    blip(660, 0.16, "sine", 0.032, 60, 0, 0.09, 1800);
   },
   warn() {
     for (let i = 0; i < 3; i += 1) {
-      blip(110, 0.16, "square", 0.035, -18, 0, i * 0.24);
-      blip(55, 0.2, "sine", 0.05, 0, 0, i * 0.24);
+      sub(62, 0.26, 0.09, -14, i * 0.26);
+      blip(124, 0.2, "sawtooth", 0.035, -24, 0, i * 0.26, 420);
     }
   },
   phase() {
-    blip(240, 0.5, "sawtooth", 0.05, -170);
-    noiseHit(0.4, 0.05, 1400);
+    blip(300, 0.6, "sawtooth", 0.06, -240, 0, 0, 800);
+    noiseHit(0.5, 0.08, 1600);
+    sub(80, 0.5, 0.08, -40);
   },
   shot() {
     const now = performance.now();
-    if (now - lastShotSound < 70) return;
+    if (now - lastShotSound < 65) return;
     lastShotSound = now;
-    blip(rand(620, 700), 0.028, "square", 0.007, -180, panOf(player.x));
+    const pan = panOf(player.x);
+    blip(rand(320, 360), 0.05, "sawtooth", 0.022, -190, pan, 0, 1100);
+    noiseHit(0.035, 0.012, 3600, pan);
+    sub(150, 0.045, 0.01, -60);
   },
   graze() {
     const now = performance.now();
-    if (now - lastGrazeSound < 60) return;
+    if (now - lastGrazeSound < 55) return;
     lastGrazeSound = now;
-    blip(1250, 0.02, "sine", 0.006, -200, panOf(player.x));
+    blip(1400, 0.025, "triangle", 0.008, -300, panOf(player.x), 0, 4200);
   },
   chain(level) {
-    blip(420 + level * 42, 0.06, "triangle", 0.02, 40);
+    blip(360 + level * 36, 0.09, "triangle", 0.03, 50, 0, 0, 1600);
+    sub(110, 0.08, 0.02, 20);
   },
   hit() {
-    noiseHit(0.32, 0.1, 900);
-    blip(95, 0.38, "sawtooth", 0.07, -55);
+    sub(62, 0.5, 0.16, -30);
+    noiseHit(0.45, 0.14, 1100);
+    blip(150, 0.35, "sawtooth", 0.07, -90, 0, 0, 600);
   },
   alarm() {
-    blip(160, 0.12, "square", 0.035, -30);
-    blip(160, 0.12, "square", 0.035, -30, 0, 0.18);
+    sub(70, 0.14, 0.08, -20);
+    blip(140, 0.14, "square", 0.035, -30, 0, 0, 500);
+    sub(70, 0.14, 0.06, -20, 0.2);
+    blip(140, 0.14, "square", 0.03, -30, 0, 0.2, 500);
   },
   explode(big) {
     if (big) {
-      noiseHit(0.55, 0.08, 1100);
-      blip(85, 0.55, "sine", 0.07, -55);
-      blip(50, 0.7, "sine", 0.05, -20, 0, 0.03);
+      sub(64, 0.8, 0.18, -36);
+      noiseHit(0.75, 0.14, 1500);
+      noiseHit(0.28, 0.07, 320, 0, 0.02);
+      blip(110, 0.5, "sawtooth", 0.05, -70, 0, 0, 500);
     } else {
-      noiseHit(0.13, 0.03, 1800);
-      blip(190, 0.1, "sawtooth", 0.012, -70);
+      sub(105, 0.2, 0.07, -55);
+      noiseHit(0.2, 0.05, 2400);
+      blip(210, 0.13, "sawtooth", 0.022, -120, 0, 0, 800);
     }
   },
   pickup(type) {
     const base = { over: 660, slow: 520, shield: 440, pulse: 300, repair: 600 }[type] || 560;
-    blip(base, 0.07, "sine", 0.025, 120);
-    blip(base * 1.5, 0.1, "sine", 0.022, 180, 0, 0.06);
+    blip(base, 0.1, "triangle", 0.035, 100, 0, 0, 2400);
+    blip(base * 1.5, 0.14, "triangle", 0.028, 140, 0, 0.06, 2800);
+    sub(base / 4, 0.1, 0.02, 10);
   },
   heal() {
-    blip(520, 0.08, "sine", 0.025, 80);
-    blip(780, 0.1, "sine", 0.022, 120, 0, 0.07);
-    blip(1040, 0.12, "sine", 0.018, 120, 0, 0.14);
+    blip(523, 0.1, "triangle", 0.035, 60, 0, 0, 2200);
+    blip(784, 0.12, "triangle", 0.03, 80, 0, 0.07, 2600);
+    blip(1046, 0.16, "triangle", 0.025, 100, 0, 0.14, 3000);
+    sub(130, 0.2, 0.03, 30);
   },
   shieldBreak() {
-    noiseHit(0.18, 0.05, 2200);
-    blip(300, 0.2, "triangle", 0.04, 160);
+    noiseHit(0.22, 0.07, 2600);
+    blip(340, 0.28, "triangle", 0.05, 120, 0, 0, 1800);
+    sub(90, 0.2, 0.06, -30);
   },
   clear() {
-    blip(392, 0.1, "sine", 0.03, 60);
-    blip(587, 0.14, "sine", 0.03, 80, 0, 0.1);
+    blip(440, 0.14, "triangle", 0.04, 60, 0, 0, 2000);
+    blip(660, 0.2, "triangle", 0.035, 80, 0, 0.1, 2400);
+    sub(110, 0.25, 0.04, 10);
   },
   confirm() {
-    blip(320, 0.06, "square", 0.018, 90);
-    blip(480, 0.08, "square", 0.015, 110, 0, 0.05);
+    blip(360, 0.07, "square", 0.02, 90, 0, 0, 1200);
+    blip(540, 0.09, "square", 0.017, 110, 0, 0.05, 1400);
   },
   expire() {
-    blip(420, 0.12, "triangle", 0.02, -160);
+    blip(480, 0.16, "triangle", 0.03, -220, 0, 0, 1400);
   },
   death() {
-    noiseHit(0.9, 0.08, 800);
-    blip(300, 1.1, "sawtooth", 0.06, -270);
-    blip(150, 1.3, "sine", 0.05, -100, 0, 0.1);
+    sub(60, 1.4, 0.18, -30);
+    noiseHit(1, 0.12, 1200);
+    blip(320, 1.2, "sawtooth", 0.07, -280, 0, 0, 700);
+    blip(160, 1.4, "sine", 0.05, -120, 0, 0.15, 900);
   }
 };
 function resize() {
@@ -2550,6 +2705,10 @@ function update(dt) {
   if (state.threatTimer <= 0) {
     state.threatTimer = 0.45;
     state.threats = 0;
+  }
+  if (state.tipTimer > 0) {
+    state.tipTimer -= dt;
+    if (state.tipTimer <= 0) tipEl.hidden = true;
   }
   if (state.chainTimer > 0) {
     state.chainTimer -= dt;

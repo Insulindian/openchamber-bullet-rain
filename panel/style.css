@@ -398,6 +398,39 @@ canvas {
 
 .hint span { overflow: hidden; text-overflow: ellipsis; }
 
+.hint b {
+  font-weight: 500;
+  color: rgba(255, 180, 94, 0.9);
+}
+
+.tip {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 180, 94, 0.4);
+  background: rgba(5, 7, 11, 0.78);
+  font-family: var(--face);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: rgba(233, 229, 216, 0.9);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tip b {
+  font-weight: 500;
+  color: var(--heat);
+}
+
+.tip.is-in { animation: tipIn 180ms ease-out; }
+
+@keyframes tipIn {
+  from { opacity: 0; transform: translate(-50%, 5px); }
+}
+
 /* ------------------------------------------------------------------- gate */
 
 .gate {

@@ -20,7 +20,7 @@ https://github.com/Insulindian/openchamber-bullet-rain
 
 - 指针移动，自动开火
 - 按住左键 / Shift 精确移动
-- P / Esc 暂停，R 重开
+- 右键 / P / Esc 暂停，R 重开
 
 ## 内容
 
