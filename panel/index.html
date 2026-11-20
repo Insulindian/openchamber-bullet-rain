@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<title>弹雨</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<main id="root">
+  <div class="stage" id="stage">
+    <canvas id="play" tabindex="0" aria-label="弹雨游戏画面"></canvas>
+
+    <div class="hud" aria-hidden="true">
+      <div class="readout">
+        <span class="k">分数 · SCORE</span>
+        <span id="score" class="v">0</span>
+        <span id="chain" class="sub" hidden></span>
+      </div>
+      <div class="mid">
+        <div id="lives" class="pips"></div>
+        <span id="wave" class="wave">WAVE 01</span>
+        <span id="buffs" class="buffs"></span>
+      </div>
+      <div class="readout right">
+        <span class="k">最佳 · BEST</span>
+        <span id="best" class="v small">0</span>
+        <div class="tools">
+          <button id="sound" class="tool" type="button" aria-label="声音" title="声音">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8h3l4-3v10l-4-3H4z"/><path class="wave" d="M14 7.5a4 4 0 0 1 0 5"/></svg>
+          </button>
+          <button id="pause" class="tool" type="button" aria-label="暂停" title="暂停">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="bossbar" class="bossbar" hidden>
+      <span id="bossname" class="bossname">核心</span>
+      <span class="bar"><i id="bosshp"></i></span>
+    </div>
+
+    <div class="foot" aria-hidden="true">
+      <span id="graze">擦弹 0</span>
+      <span id="power" class="power">火力 0</span>
+    </div>
+
+    <div id="gate" class="gate">
+      <div class="gate-inner">
+        <p id="gate-kicker" class="gate-kicker">VERTICAL DANMAKU</p>
+        <h1 id="gate-title" class="gate-title">弹雨</h1>
+        <p id="gate-text" class="gate-text"></p>
+        <div id="gate-actions" class="gate-actions"></div>
+        <p class="gate-credit">ZCOOL / CHAKRA PETCH · SIL OFL</p>
+      </div>
+    </div>
+
+    <div id="upgrade" class="upgrade" hidden>
+      <p class="up-kicker">波次完成 · WAVE CLEAR</p>
+      <h2 class="up-title">选择强化</h2>
+      <div id="up-options" class="up-options"></div>
+      <p class="up-hint">点击，或按 1 / 2 / 3</p>
+    </div>
+
+    <p class="hint"><span>指针移动 · 自动射击</span><span>按住左键 / Shift 精确</span></p>
+
+    <div id="loading" class="loading" aria-hidden="true"></div>
+  </div>
+</main>
+<script src="main.js"></script>
+</body>
+</html>

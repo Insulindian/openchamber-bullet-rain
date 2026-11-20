@@ -1,0 +1,27 @@
+{
+  "name": "openchamber-bullet-rain",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bullet Rain: a small vertical danmaku shooter for OpenChamber.",
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": { "openchamber": ">=2.7.0" },
+    "id": "bullet-rain",
+    "name": "弹雨",
+    "icon": "icon.svg",
+    "contributes": {
+      "panel": { "entry": "panel/index.html" },
+      "attach": true
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --format=iife --platform=browser --target=es2020 --outfile=panel/main.js"
+  },
+  "dependencies": {
+    "@openchamber/sdk": "2.7.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
