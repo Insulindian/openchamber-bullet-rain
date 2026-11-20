@@ -1956,6 +1956,8 @@ ${GUEST_UI_LOOK_CSS}`;
     waveQuiet: 0,
     bossPending: false,
     fireTimer: 0,
+    threats: 0,
+    threatTimer: 0,
     shield: 0,
     buff: { over: 0, slow: 0 },
     up: { rate: 0, dmg: 0, stream: 0 },
@@ -2366,7 +2368,7 @@ ${GUEST_UI_LOOK_CSS}`;
   function spawnBoss() {
     const variant = ((Math.floor(state.wave / 4) - 1) % 3 + 3) % 3;
     const spec = BOSSES[variant];
-    const hp = 200 + state.wave * 26 + state.wave * state.wave * 3;
+    const hp = 260 + state.wave * 40 + state.wave * state.wave * 6;
     const e = {
       kind: "boss",
       tier: 8,
@@ -2401,63 +2403,105 @@ ${GUEST_UI_LOOK_CSS}`;
     spawnEnemy("drone", state.w * 0.8, -70);
     state.banner = { text: "WARNING", sub: spec.name, life: 1.8, max: 1.8 };
   }
+  function closestApproach(x, y, vx, vy) {
+    const dx = player.x - x;
+    const dy = player.y - y;
+    const v2 = vx * vx + vy * vy;
+    if (v2 < 1) return null;
+    const t = -(dx * vx + dy * vy) / v2;
+    if (t <= 0) return null;
+    const cx = x + vx * t;
+    const cy = y + vy * t;
+    return { t, d: Math.hypot(player.x - cx, player.y - cy) };
+  }
+  var angDiff = (a, b) => Math.abs(((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI);
   function shoot(x, y, angle, speed, kind = "orb") {
+    if (state.mode !== "playing") return;
+    if (Math.hypot(x - player.x, y - player.y) < 56) return;
+    if (ebullets.length > 320) return;
+    let vx = Math.cos(angle) * speed;
+    let vy = Math.sin(angle) * speed;
+    let hit = closestApproach(x, y, vx, vy);
+    if (hit && hit.t < 0.6) {
+      const k = hit.t / 0.6;
+      vx *= k;
+      vy *= k;
+      hit = closestApproach(x, y, vx, vy);
+    }
+    if (hit && hit.d < 9 && hit.t < 1.6) {
+      if (state.threats >= 2) return;
+      state.threats += 1;
+    }
     const r = kind === "needle" ? 5 : kind === "big" ? 9 : 6.4;
-    ebullets.push({
-      x,
-      y,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      angle,
-      r,
-      kind,
-      grazed: false
-    });
+    ebullets.push({ x, y, vx, vy, angle, r, kind, grazed: false });
   }
   var shootOrb = (x, y, a, s) => shoot(x, y, a, s, "orb");
   var shootNeedle = (x, y, a, s) => shoot(x, y, a, s, "needle");
+  function fireRing(x, y, count, speed, offset, gap = 0.55) {
+    const dist = Math.hypot(player.x - x, player.y - y);
+    const maxCount = Math.max(10, Math.floor(TAU * Math.max(dist, 120) / 34));
+    const n = Math.max(8, Math.min(count, maxCount));
+    const door = offset + rand(0, TAU);
+    for (let i = 0; i < n; i += 1) {
+      const a = offset + i / n * TAU;
+      if (angDiff(a, door) < gap / 2) continue;
+      shoot(x, y, a, speed, "orb");
+    }
+  }
+  function fireFan(x, y, count, spread, speed, kind = "orb", jitter = 0.05, center = null) {
+    const dist = Math.hypot(player.x - x, player.y - y);
+    const maxCount = Math.max(3, Math.floor(spread * Math.max(dist, 120) / 30) + 1);
+    const n = Math.max(3, Math.min(count, maxCount));
+    const a0 = (center === null ? aimAt(x, y) : center) + rand(-jitter, jitter);
+    const step = n > 1 ? spread / (n - 1) : 0;
+    for (let i = 0; i < n; i += 1) {
+      shoot(x, y, a0 + (i - (n - 1) / 2) * step, speed, kind);
+    }
+  }
   function aimAt(x, y) {
     return Math.atan2(player.y - y, player.x - x);
   }
   function bossVolley(e) {
     const speed = bulletSpeed();
-    const heavy = e.phase === 2;
+    const heavy = e.phase >= 2;
     const v2 = e.variant;
     e.cont = null;
     if (v2 === 0) {
       if (e.pattern === 0) {
-        const n = heavy ? 28 : 22;
-        for (let i = 0; i < n; i += 1) shootOrb(e.x, e.y, e.spin + i / n * TAU, speed * 0.6);
+        fireRing(e.x, e.y, heavy ? 26 : 22, speed * 0.6, e.spin, 0.62);
         e.spin += 0.19;
       } else if (e.pattern === 1) {
-        const a0 = aimAt(e.x, e.y);
-        const n = heavy ? 9 : 7;
-        for (let i = 0; i < n; i += 1) shootNeedle(e.x, e.y, a0 + (i - (n - 1) / 2) * 0.1, speed * 1.24);
-      } else {
+        fireFan(e.x, e.y, heavy ? 9 : 7, 0.7, speed * 1.22, "needle", 0.03);
+      } else if (e.pattern === 2) {
         e.cont = { kind: "spiral", timer: 2.6, every: 0.1, tick: 0, arms: heavy ? 3 : 2, angle: rand(0, TAU) };
+      } else {
+        for (let k = 0; k < 4; k += 1) {
+          fireFan(e.x, e.y, 5, 0.46, speed * 0.6, "orb", 0.02, k * Math.PI / 2 + e.t * 0.25);
+        }
       }
     } else if (v2 === 1) {
       if (e.pattern === 0) {
-        e.cont = { kind: "sweep", timer: 2.2, every: 0.085, tick: 0, spread: -0.85, dir: 1 };
+        e.cont = { kind: "sweep", timer: 2.2, every: 0.09, tick: 0, spread: -0.85, dir: 1 };
       } else if (e.pattern === 1) {
-        const a0 = aimAt(e.x, e.y);
         for (let k = 0; k < 3; k += 1) {
-          for (let i = -1; i <= 1; i += 1) shootNeedle(e.x, e.y, a0 + i * 0.075, speed * (1.15 + k * 0.08));
+          fireFan(e.x, e.y, 3, 0.24, speed * (1.12 + k * 0.08), "needle", 0.02);
         }
+      } else if (e.pattern === 2) {
+        e.cont = { kind: "ring", timer: 2.2, every: 0.24, tick: 0, angle: rand(0, TAU) };
       } else {
-        e.cont = { kind: "ring", timer: 2.2, every: 0.22, tick: 0, angle: rand(0, TAU) };
+        e.cont = { kind: "curtain", timer: 2.4, every: 0.4, tick: 0, lane: 2 };
       }
     } else {
       if (e.pattern === 0) {
         e.cont = { kind: "spiral", timer: 2.8, every: 0.09, tick: 0, arms: heavy ? 4 : 3, angle: rand(0, TAU) };
       } else if (e.pattern === 1) {
-        const n = heavy ? 26 : 20;
-        for (let i = 0; i < n; i += 1) shootOrb(e.x, e.y, e.spin + i / n * TAU, speed * 0.55);
+        fireRing(e.x, e.y, heavy ? 24 : 20, speed * 0.55, e.spin, 0.7);
         e.spin += 0.23;
-        const a0 = aimAt(e.x, e.y);
-        for (let i = -2; i <= 2; i += 1) shootNeedle(e.x, e.y, a0 + i * 0.13, speed * 1.1);
+        fireFan(e.x, e.y, 5, 0.4, speed * 1.05, "needle", 0.03);
+      } else if (e.pattern === 2) {
+        e.cont = { kind: "wall", timer: 2.4, every: 0.22, tick: 0, side: 1 };
       } else {
-        e.cont = { kind: "wall", timer: 2.4, every: 0.2, tick: 0, side: 1 };
+        fireRing(e.x, e.y, 14, speed * 0.42, rand(0, TAU), 0.9);
       }
     }
   }
@@ -2483,7 +2527,14 @@ ${GUEST_UI_LOOK_CSS}`;
       } else if (c.kind === "wall") {
         const sway = Math.sin(e.t * 1.4) * 0.5;
         for (let i = -2; i <= 2; i += 1) {
-          shootOrb(e.x + i * 15, e.y, Math.PI / 2 + i * 0.22 + sway * 0.16, speed * 0.7);
+          if (i === 0) continue;
+          shootOrb(e.x + i * 16, e.y, Math.PI / 2 + i * 0.22 + sway * 0.16, speed * 0.7);
+        }
+      } else if (c.kind === "curtain") {
+        c.lane = clamp(c.lane + [-1, 0, 0, 1][Math.floor(Math.random() * 4)], 0, 4);
+        for (let i = 0; i < 5; i += 1) {
+          if (i === c.lane) continue;
+          shootNeedle(state.w * (0.1 + i * 0.2), 18, Math.PI / 2, speed * 0.92);
         }
       }
     }
@@ -2496,6 +2547,7 @@ ${GUEST_UI_LOOK_CSS}`;
         e.entered = true;
         e.t = 0;
         e.patternT = 0.7;
+        if (state.wave >= 16) e.phase = 2;
       }
       return;
     }
@@ -2514,16 +2566,31 @@ ${GUEST_UI_LOOK_CSS}`;
       spawnEnemy("rusher", state.w * 0.84, -50);
       state.banner = { text: "\u6838\u5FC3\u8FC7\u8F7D", sub: "OVERDRIVE", life: 1.5, max: 1.5 };
     }
+    if (e.phase === 2 && e.hp <= e.max * 0.25) {
+      e.phase = 3;
+      e.flash = 1;
+      state.flash = 0.9;
+      state.shake = 14;
+      burst(e.x, e.y, C.hurt, 30);
+      sfx.explode(true);
+      spawnEnemy("split", state.w * 0.24, -50);
+      spawnEnemy("split", state.w * 0.76, -60);
+      state.banner = { text: "\u4E34\u754C", sub: "CRITICAL", life: 1.4, max: 1.4 };
+    }
+    const pace = e.phase === 3 ? 0.62 : e.phase === 2 ? 0.78 : 1;
     e.patternT -= dt;
     if (e.patternT <= 0) {
-      e.pattern = (e.pattern + 1) % 3;
-      e.patternT = 2.7 * (e.phase === 2 ? 0.76 : 1);
+      e.pattern = (e.pattern + 1) % 4;
+      e.patternT = 2.7 * pace;
       bossVolley(e);
     }
     e.fire -= dt;
     if (e.fire <= 0) {
-      e.fire = e.phase === 2 ? 0.4 : 0.56;
+      e.fire = e.phase === 3 ? 0.3 : e.phase === 2 ? 0.4 : 0.56;
       shootOrb(e.x + rand(-14, 14), e.y + 18, aimAt(e.x, e.y) + rand(-0.1, 0.1), bulletSpeed() * 0.85);
+      if (e.phase === 3) {
+        shootOrb(e.x + rand(-18, 18), e.y + 10, aimAt(e.x, e.y) + rand(-0.18, 0.18), bulletSpeed() * 0.7);
+      }
     }
     bossCont(e, dt);
     e.flash = Math.max(0, e.flash - dt * 3);
@@ -2593,7 +2660,7 @@ ${GUEST_UI_LOOK_CSS}`;
         e.charge -= dt;
         e.aim = aimAt(e.x, e.y);
         if (e.charge <= 0) {
-          for (let i = -1; i <= 1; i += 1) shootNeedle(e.x, e.y, e.aim + i * 0.055, Math.min(560, bs * 1.7));
+          fireFan(e.x, e.y, 3, 0.11, Math.min(560, bs * 1.7), "needle", 0.01, e.aim);
           e.shots += 1;
           e.phase = 2;
           e.fire = 1.5 / rk;
@@ -2615,8 +2682,7 @@ ${GUEST_UI_LOOK_CSS}`;
         e.fire -= dt;
         if (e.fire <= 0) {
           e.fire = 2 / rk;
-          const a0 = aimAt(e.x, e.y);
-          for (let i = -1; i <= 1; i += 1) shootOrb(e.x, e.y, a0 + i * 0.15, bs * 0.92);
+          fireFan(e.x, e.y, 3, 0.3, bs * 0.92, "orb", 0.05);
         }
         if (e.t > 10) e.leaving = true;
       } else {
@@ -2630,8 +2696,7 @@ ${GUEST_UI_LOOK_CSS}`;
         e.fire -= dt;
         if (e.fire <= 0) {
           e.fire = 2.15 / rk;
-          const a0 = aimAt(e.x, e.y);
-          for (let i = -2; i <= 2; i += 1) shootOrb(e.x, e.y, a0 + i * 0.13, bs * 0.95);
+          fireFan(e.x, e.y, 5, 0.52, bs * 0.95, "orb", 0.04);
         }
         if (e.t > 13) e.leaving = true;
       } else {
@@ -2662,14 +2727,13 @@ ${GUEST_UI_LOOK_CSS}`;
         if (e.fire <= 0) {
           e.fire = 2.6 / rk;
           const n = e.hp < e.max * 0.45 ? 18 : 14;
-          for (let i = 0; i < n; i += 1) shootOrb(e.x, e.y, e.spin + i / n * TAU, bs * 0.56);
+          fireRing(e.x, e.y, n, bs * 0.56, e.spin, 0.6);
           e.spin += 0.19;
         }
         e.burst -= dt;
         if (e.burst <= 0) {
           e.burst = 1.25 / rk;
-          const a0 = aimAt(e.x, e.y);
-          for (let i = -1; i <= 1; i += 1) shootNeedle(e.x, e.y, a0 + i * 0.16, bs);
+          fireFan(e.x, e.y, 3, 0.32, bs, "needle", 0.03);
         }
         if (e.t > 17) e.leaving = true;
       } else {
@@ -3105,7 +3169,8 @@ ${GUEST_UI_LOOK_CSS}`;
     healPlayer(1, false);
     burst(player.x, player.y - 20, C.heat, 18);
     sfx.clear();
-    if (state.wave % 2 === 0) {
+    const canUpgrade = UPGRADES.some((u) => state.up[u.id] < u.max);
+    if (state.wave % 2 === 0 && canUpgrade) {
       state.mode = "upgrade";
       state.banner = { text: "WAVE CLEAR", sub: "\u5F3A\u5316 \xB7 UPGRADE", life: 1.2, max: 1.2 };
       showUpgrades();
@@ -4046,6 +4111,11 @@ ${GUEST_UI_LOOK_CSS}`;
       return;
     }
     if (state.mode !== "playing") return;
+    state.threatTimer -= dt;
+    if (state.threatTimer <= 0) {
+      state.threatTimer = 0.45;
+      state.threats = 0;
+    }
     if (state.chainTimer > 0) {
       state.chainTimer -= dt;
       if (state.chainTimer <= 0) resetChain();
