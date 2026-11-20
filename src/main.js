@@ -778,6 +778,7 @@ function updateBoss(e, dt) {
     spawnEnemy("rusher", state.w * 0.16, -40);
     spawnEnemy("rusher", state.w * 0.84, -50);
     state.banner = { text: "\u6838\u5FC3\u8FC7\u8F7D", sub: "OVERDRIVE", life: 1.5, max: 1.5 };
+    sfx.phase();
   }
 
   if (e.phase === 2 && e.hp <= e.max * 0.25) {
@@ -790,6 +791,7 @@ function updateBoss(e, dt) {
     spawnEnemy("split", state.w * 0.24, -50);
     spawnEnemy("split", state.w * 0.76, -60);
     state.banner = { text: "\u4E34\u754C", sub: "CRITICAL", life: 1.4, max: 1.4 };
+    sfx.phase();
   }
 
   const pace = e.phase === 3 ? 0.62 : e.phase === 2 ? 0.78 : 1;
@@ -1064,7 +1066,7 @@ function healPlayer(amount, rewardIfFull) {
     if (rewardIfFull) {
       addScore(400);
       popups.push({ x: player.x, y: player.y - 28, text: "+400", life: 0.9, max: 0.9, color: C.bone });
-      sfx.pickup();
+      sfx.pickup("repair");
     }
     return false;
   }
@@ -1074,7 +1076,7 @@ function healPlayer(amount, rewardIfFull) {
   window.setTimeout(() => hpEl.classList.remove("is-heal"), 450);
   popups.push({ x: player.x, y: player.y - 28, text: "HP +1", life: 1, max: 1, color: "#a6f08a" });
   burst(player.x, player.y, "#a6f08a", 12);
-  sfx.pickup();
+  sfx.heal();
   return true;
 }
 function updateDrops(dt) {
@@ -1110,7 +1112,7 @@ function collectPickup(d) {
   else if (d.type === "repair") healPlayer(1, true);
   popups.push({ x: d.x, y: d.y, text: spec.label, life: 1.1, max: 1.1, color: spec.color });
   burst(d.x, d.y, spec.color, 14);
-  sfx.pickup();
+  if (d.type !== "repair") sfx.pickup(d.type);
   updateBuffs();
 }
 function pulseBlast() {
@@ -1208,6 +1210,7 @@ function bumpChain() {
   state.chain = Math.min(10, state.chain + 1);
   state.chainTimer = 3;
   chainEl.textContent = `\u8FDE\u9501 \xD7${state.chain}`;
+  if ([3, 5, 7, 10].includes(state.chain)) sfx.chain(state.chain);
 }
 function resetChain() {
   state.chain = 1;
@@ -1260,6 +1263,7 @@ function collide() {
       state.graze += 1;
       grazeEl.textContent = `\u64E6\u5F39 ${state.graze}`;
       addScore(6);
+      sfx.graze();
       particles.push({ x: b.x, y: b.y, vx: 0, vy: -18, life: 0.3, max: 0.3, size: 1.4, color: C.bone });
     }
   }
@@ -1291,7 +1295,7 @@ function hitPlayer() {
     state.flash = 0.5;
     ebullets = ebullets.filter((b) => Math.hypot(b.x - player.x, b.y - player.y) > 130);
     burst(player.x, player.y, C.bone, 18);
-    sfx.shield();
+    sfx.shieldBreak();
     updateBuffs();
     return;
   }
@@ -1303,6 +1307,7 @@ function hitPlayer() {
   state.lives -= 1;
   updateHud();
   sfx.hit();
+  if (state.lives === 1) sfx.alarm();
   if (state.lives <= 0) {
     if (state.boss) {
       state.boss = null;
@@ -1342,6 +1347,8 @@ function startWave(n) {
     state.banner = { text: `WAVE ${String(n).padStart(2, "0")}`, sub: z.code, life: 1.5, max: 1.5 };
   }
   updateWaveLabel();
+  if (state.bossPending) sfx.warn();
+  else sfx.wave();
 }
 function updateWave(dt) {
   if (state.bossPending) {
@@ -1440,6 +1447,7 @@ function showUpgrades() {
   }
 }
 function chooseUpgrade(up) {
+  sfx.confirm();
   if (up) state.up[up.id] += 1;
   upgradeEl.hidden = true;
   state.mode = "playing";
@@ -1462,6 +1470,7 @@ function runSteps(count) {
   }
 }
 function endRun() {
+  sfx.death();
   state.mode = "over";
   const isBest = state.score > best;
   if (isBest) {
@@ -1489,7 +1498,10 @@ function showGate({ kicker, title, text, actions }) {
     button2.type = "button";
     button2.className = `gate-button${action.primary ? " primary" : ""}`;
     button2.textContent = action.label;
-    button2.addEventListener("click", () => action.run());
+    button2.addEventListener("click", () => {
+      sfx.confirm();
+      action.run();
+    });
     gateActions.append(button2);
   }
   gate.hidden = false;
@@ -1721,71 +1733,227 @@ function bindEvents() {
     keys.clear();
     pointerDown = false;
   });
-  pauseBtn.addEventListener("click", () => togglePause());
-  soundBtn.addEventListener("click", () => {
-    soundOn = !soundOn;
-    soundBtn.classList.toggle("is-on", soundOn);
-    soundBtn.setAttribute("aria-pressed", String(soundOn));
-    if (soundOn) {
-      ensureAudio();
-      sfx.shot();
-    }
+  pauseBtn.addEventListener("click", () => {
+    sfx.confirm();
+    togglePause();
   });
+  soundBtn.addEventListener("click", () => setSound(!soundOn));
+  const unlock = () => {
+    if (soundOn) ensureAudio();
+  };
+  window.addEventListener("pointerdown", unlock, { passive: true });
+  window.addEventListener("keydown", unlock);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && state.mode === "playing") togglePause();
   });
   new ResizeObserver(() => resize()).observe(stage);
 }
+var SOUND_KEY = "bullet-rain:sound";
 var audio = null;
-var soundOn = false;
-function ensureAudio() {
-  if (audio) {
-    if (audio.state === "suspended") void audio.resume();
-    return;
+var master = null;
+var noiseBuf = null;
+var soundOn = readSoundPref();
+var lastShotSound = 0;
+var lastGrazeSound = 0;
+
+function readSoundPref() {
+  try {
+    const raw = window.localStorage.getItem(SOUND_KEY);
+    if (raw === "0") return false;
+    if (raw === "1") return true;
+  } catch {
+    // Guest frames may have no storage of their own.
+  }
+  return true;
+}
+
+function saveSoundPref() {
+  try {
+    window.localStorage.setItem(SOUND_KEY, soundOn ? "1" : "0");
+  } catch {
+    // Ignore.
   }
   try {
-    audio = new (window.AudioContext || window.webkitAudioContext)();
+    void host.storage.set(SOUND_KEY, soundOn).catch(() => undefined);
   } catch {
-    audio = null;
+    // No host outside OpenChamber.
   }
 }
-var lastShotSound = 0;
-function tone2(freq, duration, type = "square", gain = 0.03, slide = 0) {
-  if (!soundOn || !audio) return;
-  const now = audio.currentTime;
+
+async function loadSoundPref() {
+  try {
+    const stored = await host.storage.get(SOUND_KEY);
+    if (typeof stored === "boolean") {
+      soundOn = stored;
+      syncSoundButton();
+    }
+  } catch {
+    // Keep the local value.
+  }
+}
+
+function syncSoundButton() {
+  soundBtn.classList.toggle("is-on", soundOn);
+  soundBtn.setAttribute("aria-pressed", String(soundOn));
+}
+
+function setSound(on) {
+  soundOn = on;
+  syncSoundButton();
+  saveSoundPref();
+  if (soundOn) {
+    ensureAudio();
+    sfx.confirm();
+  }
+}
+
+function ensureAudio() {
+  if (!audio) {
+    try {
+      audio = new (window.AudioContext || window.webkitAudioContext)();
+      master = audio.createGain();
+      master.gain.value = 0.5;
+      const comp = audio.createDynamicsCompressor();
+      comp.threshold.value = -20;
+      comp.knee.value = 12;
+      comp.ratio.value = 6;
+      comp.attack.value = 0.003;
+      comp.release.value = 0.25;
+      master.connect(comp).connect(audio.destination);
+
+      noiseBuf = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.4), audio.sampleRate);
+      const data = noiseBuf.getChannelData(0);
+      for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+    } catch {
+      audio = null;
+      master = null;
+      return;
+    }
+  }
+  if (audio.state === "suspended") void audio.resume();
+}
+
+const panOf = (x) => clamp((x - state.w / 2) / (state.w / 2), -1, 1) * 0.55;
+
+function blip(freq, duration, type = "square", gain = 0.03, slide = 0, pan = 0, delay = 0) {
+  if (!soundOn || !audio || !master) return;
+  const at = audio.currentTime + delay;
   const osc = audio.createOscillator();
   const amp = audio.createGain();
+  const panner = audio.createStereoPanner();
   osc.type = type;
-  osc.frequency.setValueAtTime(freq, now);
-  if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), now + duration);
-  amp.gain.setValueAtTime(1e-4, now);
-  amp.gain.exponentialRampToValueAtTime(gain, now + 0.01);
-  amp.gain.exponentialRampToValueAtTime(1e-4, now + duration);
-  osc.connect(amp).connect(audio.destination);
-  osc.start(now);
-  osc.stop(now + duration + 0.02);
+  osc.frequency.setValueAtTime(freq, at);
+  if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), at + duration);
+  amp.gain.setValueAtTime(1e-4, at);
+  amp.gain.exponentialRampToValueAtTime(gain, at + 0.008);
+  amp.gain.exponentialRampToValueAtTime(1e-4, at + duration);
+  panner.pan.value = pan;
+  osc.connect(amp).connect(panner).connect(master);
+  osc.start(at);
+  osc.stop(at + duration + 0.02);
 }
+
+function noiseHit(duration, gain, cutoff, pan = 0, delay = 0) {
+  if (!soundOn || !audio || !master || !noiseBuf) return;
+  const at = audio.currentTime + delay;
+  const src = audio.createBufferSource();
+  src.buffer = noiseBuf;
+  src.playbackRate.value = rand(0.85, 1.2);
+  const filter = audio.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(cutoff, at);
+  filter.frequency.exponentialRampToValueAtTime(Math.max(120, cutoff * 0.35), at + duration);
+  const amp = audio.createGain();
+  amp.gain.setValueAtTime(gain, at);
+  amp.gain.exponentialRampToValueAtTime(1e-4, at + duration);
+  const panner = audio.createStereoPanner();
+  panner.pan.value = pan;
+  src.connect(filter).connect(amp).connect(panner).connect(master);
+  src.start(at);
+  src.stop(at + duration);
+}
+
 var sfx = {
+  start() {
+    blip(330, 0.1, "triangle", 0.05, 120);
+    blip(495, 0.14, "triangle", 0.05, 160, 0, 0.09);
+  },
+  wave() {
+    blip(392, 0.09, "sine", 0.03, 40);
+    blip(523, 0.12, "sine", 0.03, 50, 0, 0.1);
+  },
+  warn() {
+    for (let i = 0; i < 3; i += 1) {
+      blip(110, 0.16, "square", 0.035, -18, 0, i * 0.24);
+      blip(55, 0.2, "sine", 0.05, 0, 0, i * 0.24);
+    }
+  },
+  phase() {
+    blip(240, 0.5, "sawtooth", 0.05, -170);
+    noiseHit(0.4, 0.05, 1400);
+  },
   shot() {
     const now = performance.now();
-    if (now - lastShotSound < 90) return;
+    if (now - lastShotSound < 70) return;
     lastShotSound = now;
-    tone2(640, 0.03, "square", 8e-3, -100);
+    blip(rand(620, 700), 0.028, "square", 0.007, -180, panOf(player.x));
+  },
+  graze() {
+    const now = performance.now();
+    if (now - lastGrazeSound < 60) return;
+    lastGrazeSound = now;
+    blip(1250, 0.02, "sine", 0.006, -200, panOf(player.x));
+  },
+  chain(level) {
+    blip(420 + level * 42, 0.06, "triangle", 0.02, 40);
   },
   hit() {
-    tone2(120, 0.3, "sawtooth", 0.05, -60);
+    noiseHit(0.32, 0.1, 900);
+    blip(95, 0.38, "sawtooth", 0.07, -55);
+  },
+  alarm() {
+    blip(160, 0.12, "square", 0.035, -30);
+    blip(160, 0.12, "square", 0.035, -30, 0, 0.18);
   },
   explode(big) {
-    tone2(big ? 90 : 190, big ? 0.5 : 0.11, "sawtooth", big ? 0.06 : 0.018, -40);
+    if (big) {
+      noiseHit(0.55, 0.08, 1100);
+      blip(85, 0.55, "sine", 0.07, -55);
+      blip(50, 0.7, "sine", 0.05, -20, 0, 0.03);
+    } else {
+      noiseHit(0.13, 0.03, 1800);
+      blip(190, 0.1, "sawtooth", 0.012, -70);
+    }
   },
-  pickup() {
-    tone2(860, 0.09, "sine", 0.025, 320);
+  pickup(type) {
+    const base = { over: 660, slow: 520, shield: 440, pulse: 300, repair: 600 }[type] || 560;
+    blip(base, 0.07, "sine", 0.025, 120);
+    blip(base * 1.5, 0.1, "sine", 0.022, 180, 0, 0.06);
   },
-  shield() {
-    tone2(300, 0.22, "triangle", 0.04, 140);
+  heal() {
+    blip(520, 0.08, "sine", 0.025, 80);
+    blip(780, 0.1, "sine", 0.022, 120, 0, 0.07);
+    blip(1040, 0.12, "sine", 0.018, 120, 0, 0.14);
+  },
+  shieldBreak() {
+    noiseHit(0.18, 0.05, 2200);
+    blip(300, 0.2, "triangle", 0.04, 160);
   },
   clear() {
-    tone2(320, 0.18, "sine", 0.03, 220);
+    blip(392, 0.1, "sine", 0.03, 60);
+    blip(587, 0.14, "sine", 0.03, 80, 0, 0.1);
+  },
+  confirm() {
+    blip(320, 0.06, "square", 0.018, 90);
+    blip(480, 0.08, "square", 0.015, 110, 0, 0.05);
+  },
+  expire() {
+    blip(420, 0.12, "triangle", 0.02, -160);
+  },
+  death() {
+    noiseHit(0.9, 0.08, 800);
+    blip(300, 1.1, "sawtooth", 0.06, -270);
+    blip(150, 1.3, "sine", 0.05, -100, 0, 0.1);
   }
 };
 function resize() {
@@ -2388,8 +2556,12 @@ function update(dt) {
     if (state.chainTimer <= 0) resetChain();
   }
   const hadBuff = state.buff.over > 0 || state.buff.slow > 0 || state.shield > 0;
+  const overWas = state.buff.over;
+  const slowWas = state.buff.slow;
   state.buff.over = Math.max(0, state.buff.over - dt);
   state.buff.slow = Math.max(0, state.buff.slow - dt);
+  if (overWas > 0 && state.buff.over === 0) sfx.expire();
+  if (slowWas > 0 && state.buff.slow === 0) sfx.expire();
   state.buffTick = (state.buffTick || 0) + dt;
   if (state.buffTick >= 0.2) {
     state.buffTick = 0;
@@ -2466,6 +2638,7 @@ async function boot(context) {
   bestEl.textContent = format(best);
   resize();
   bindEvents();
+  syncSoundButton();
   updateHud();
   updatePower();
   toMenu();
@@ -2492,6 +2665,7 @@ async function boot(context) {
   }
   if (DBG) requestAnimationFrame(trackFps);
   void loadBest();
+  void loadSoundPref();
   if (AUTOPILOT) {
     window.setTimeout(() => {
       if (state.mode === "menu") startRun();
