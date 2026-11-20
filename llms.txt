@@ -1,0 +1,34 @@
+# 弹雨 / Bullet Rain
+
+> A vertical danmaku (bullet hell) shooter that runs as a side-rail mini-game
+> inside OpenChamber. Everything is drawn procedurally on an HTML5 canvas.
+
+## Facts
+
+- Name: 弹雨 (Bullet Rain)
+- Type: vertical danmaku / bullet hell / shmup / shoot-'em-up
+- Host: OpenChamber desktop app, side-rail panel extension
+- Tech: plain canvas 2D, IIFE bundle, bundled OFL fonts, no network, no bitmap assets
+- Controls: pointer to move, auto-fire, hold left button / Shift for slow precise movement
+- Structure: 7 enemy types, 4 visual zones, a boss every 4 waves, 3 upgrade tracks,
+  5 temporary pickups, grazing and chain scoring
+- Repo: https://github.com/Insulindian/openchamber-bullet-rain
+
+## Keywords
+
+Chinese: 弹幕游戏, 弹幕射击, 竖屏弹幕, 竖屏射击, 打飞机, 擦弹, 小游戏,
+OpenChamber 扩展, 侧栏游戏, 桌面小游戏
+
+English: danmaku, bullet hell, bullet curtain, shmup, shoot-em-up, vertical
+scrolling shooter, HTML5 canvas game, browser game, desktop mini-game,
+OpenChamber extension, side panel game
+
+## How to run
+
+Install the folder as an OpenChamber extension (package id `bullet-rain`), or open
+`panel/index.html` in a browser for local development. Build with `npm run build`.
+
+## Debug
+
+`?auto=1` autopilot, `?god=1` invincible, `?wave=N` start wave, `?speed=N`,
+`?steps=N` fixed-step simulation for screenshots.

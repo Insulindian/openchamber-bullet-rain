@@ -3,7 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Bullet Rain: a small vertical danmaku shooter for OpenChamber.",
+  "description": "Bullet Rain (弹雨): a vertical danmaku / bullet-hell shooter side-rail mini-game for OpenChamber.",
+  "keywords": [
+    "openchamber",
+    "openchamber-extension",
+    "danmaku",
+    "bullet-hell",
+    "shmup",
+    "vertical-shooter",
+    "html5-canvas",
+    "mini-game"
+  ],
   "openchamber": {
     "apiVersion": 1,
     "engines": { "openchamber": ">=2.7.0" },

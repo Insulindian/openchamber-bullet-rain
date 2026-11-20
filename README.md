@@ -1,6 +1,12 @@
-# 弹雨
+# 弹雨 · Bullet Rain
 
-OpenChamber 侧栏里的竖屏弹幕射击。移动、自动射击、躲弹幕；七种敌机一眼可辨，每四波换一个区域，每四波一个首领。
+> OpenChamber 的侧栏竖屏弹幕射击小游戏。Canvas 程序化画面，无位图素材，装上就能玩。
+
+**搜索关键词**：弹幕游戏、弹幕射击、竖屏射击、打飞机、擦弹、小游戏、OpenChamber 扩展、侧栏游戏、桌面小游戏、bullet hell、danmaku、shmup、vertical scrolling shooter、HTML5 canvas game、desktop mini-game。
+
+**What it is**: a vertical danmaku (bullet hell) shooter that runs as a side-rail panel inside OpenChamber. Move with the pointer, auto-fire, graze bullets, clear waves, pick temporary power-ups.
+
+移动、自动射击、躲弹幕；七种敌机一眼可辨，每四波换一个区域，每四波一个首领。
 
 ## 操作
 
