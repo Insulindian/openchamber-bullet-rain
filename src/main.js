@@ -57,6 +57,11 @@ var waveEl = $("wave");
 var grazeEl = $("graze");
 var powerEl = $("power");
 var buffsEl = $("buffs");
+var hpEl = $("hp");
+var hpNum = $("hp-num");
+var meterRate = $("meter-rate");
+var meterDmg = $("meter-dmg");
+var meterStream = $("meter-stream");
 var bossbar = $("bossbar");
 var bossname = $("bossname");
 var bosshp = $("bosshp");
@@ -1065,6 +1070,8 @@ function healPlayer(amount, rewardIfFull) {
   }
   state.lives = Math.min(LIVES, state.lives + amount);
   updateHud();
+  hpEl.classList.add("is-heal");
+  window.setTimeout(() => hpEl.classList.remove("is-heal"), 450);
   popups.push({ x: player.x, y: player.y - 28, text: "HP +1", life: 1, max: 1, color: "#a6f08a" });
   burst(player.x, player.y, "#a6f08a", 12);
   sfx.pickup();
@@ -1200,13 +1207,12 @@ function addScore(value) {
 function bumpChain() {
   state.chain = Math.min(10, state.chain + 1);
   state.chainTimer = 3;
-  chainEl.hidden = false;
   chainEl.textContent = `\u8FDE\u9501 \xD7${state.chain}`;
 }
 function resetChain() {
   state.chain = 1;
   state.chainTimer = 0;
-  chainEl.hidden = true;
+  chainEl.textContent = "";
 }
 function damageEnemy(e, amount) {
   e.hp -= amount;
@@ -1545,7 +1551,7 @@ function resetRun() {
   player.y = state.h - 110;
   moveTarget = { x: player.x, y: player.y };
   bossbar.hidden = true;
-  chainEl.hidden = true;
+  chainEl.textContent = "";
   grazeEl.textContent = "\u64E6\u5F39 0";
   waveEl.textContent = "W01 \xB7 \u6DF1\u7A7A";
   updatePower();
@@ -1605,19 +1611,58 @@ function updateHud() {
     }
   }
   for (let i = 0; i < livesEl.children.length; i += 1) livesEl.children[i].classList.toggle("spent", i >= state.lives);
+  livesEl.classList.toggle("low", state.lives === 1);
+  hpNum.textContent = `${state.lives}/${LIVES}`;
   updateWaveLabel();
 }
+
+function renderMeters() {
+  const fill = (el, value, max, bonus) => {
+    el.replaceChildren();
+    for (let i = 0; i < max; i += 1) {
+      const pip = document.createElement("b");
+      if (i < value) pip.className = "on";
+      el.append(pip);
+    }
+    for (let i = 0; i < (bonus || 0); i += 1) {
+      const pip = document.createElement("b");
+      pip.className = "bonus";
+      el.append(pip);
+    }
+  };
+  fill(meterRate, state.up.rate, 5);
+  fill(meterDmg, state.up.dmg, 5);
+  fill(meterStream, state.up.stream, 3, state.buff.over > 0 ? 2 : 0);
+}
+
 function updatePower() {
   powerEl.textContent = `\u706B\u529B ${power()}`;
+  renderMeters();
 }
+
+function buffChip(label, color, seconds) {
+  const chip = document.createElement("span");
+  chip.className = "buff";
+  chip.style.color = color;
+  const dot = document.createElement("i");
+  const name = document.createElement("b");
+  name.textContent = label;
+  chip.append(dot, name);
+  if (seconds > 0) {
+    const time = document.createElement("em");
+    time.textContent = `${Math.ceil(seconds)}s`;
+    chip.append(time);
+    if (seconds < 1.5) chip.classList.add("is-ending");
+  }
+  buffsEl.append(chip);
+}
+
 function updateBuffs() {
-  const parts = [];
-  if (state.buff.over > 0) parts.push(`\u8D85\u8F7D ${Math.ceil(state.buff.over)}s`);
-  if (state.buff.slow > 0) parts.push(`\u8FDF\u6EDE ${Math.ceil(state.buff.slow)}s`);
-  if (state.shield > 0) parts.push("\u62A4\u76FE");
-  buffsEl.textContent = parts.join(" \xB7 ");
-  buffsEl.classList.toggle("is-on", parts.length > 0);
-  powerEl.textContent = `\u706B\u529B ${power()}`;
+  buffsEl.replaceChildren();
+  if (state.buff.over > 0) buffChip("\u8D85\u8F7D", "#ffe08a", state.buff.over);
+  if (state.buff.slow > 0) buffChip("\u8FDF\u6EDE", "#7fe7ff", state.buff.slow);
+  if (state.shield > 0) buffChip("\u62A4\u76FE", "#f4f1e6", 0);
+  updatePower();
 }
 function burst(x, y, color, count) {
   for (let i = 0; i < count; i += 1) {

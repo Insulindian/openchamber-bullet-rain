@@ -129,6 +129,7 @@ canvas {
 
 .sub {
   margin-top: 4px;
+  min-height: 14px;
   font-family: var(--face);
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -136,23 +137,92 @@ canvas {
   white-space: nowrap;
 }
 
+/* loadout meters, always visible under the score */
+.loadout {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 7px;
+}
+
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--face);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: rgba(233, 229, 216, 0.62);
+  white-space: nowrap;
+}
+
+.stat span { width: 26px; }
+
+.stat i { display: inline-flex; gap: 2px; }
+
+.stat i b {
+  display: block;
+  width: 8px;
+  height: 6px;
+  border: 1px solid rgba(233, 229, 216, 0.26);
+}
+
+.stat i b.on { background: var(--heat); border-color: var(--heat); }
+.stat i b.bonus { background: #ffe08a; border-color: #ffe08a; }
+
 .mid {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 6px;
+}
+
+/* hp is the loudest thing in the hud */
+.hp {
+  display: flex;
+  align-items: center;
   gap: 7px;
 }
 
-.pips { display: flex; gap: 5px; }
+.hp-label {
+  font-family: var(--face);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: rgba(233, 229, 216, 0.55);
+}
+
+.pips { display: flex; gap: 3px; }
 
 .pip {
-  width: 10px;
-  height: 6px;
-  border: 1px solid rgba(233, 229, 216, 0.34);
+  width: 24px;
+  height: 10px;
+  border: 1px solid rgba(233, 229, 216, 0.32);
 }
 
 .pip:not(.spent) { background: var(--bone); border-color: var(--bone); }
-.pip.spent { background: transparent; border-color: rgba(233, 229, 216, 0.14); }
+.pip.spent { background: rgba(233, 229, 216, 0.05); border-color: rgba(233, 229, 216, 0.16); }
+
+.pips.low .pip:not(.spent) {
+  background: #ff5f6d;
+  border-color: #ff5f6d;
+  animation: hpPulse 0.9s steps(2, end) infinite;
+}
+
+.hp-num {
+  font-family: var(--face);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  color: rgba(233, 229, 216, 0.86);
+}
+
+.hp.is-heal .pip:not(.spent) { background: #a6f08a; border-color: #a6f08a; }
+
+@keyframes hpPulse {
+  50% { opacity: 0.3; }
+}
 
 .wave {
   font-family: var(--face);
@@ -162,14 +232,58 @@ canvas {
   white-space: nowrap;
 }
 
+/* active temporary buffs as flat tags */
 .buffs {
-  min-height: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 20px;
   font-family: var(--face);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  line-height: 1;
-  color: var(--heat);
+  font-size: 10px;
+  letter-spacing: 0.08em;
   white-space: nowrap;
+}
+
+.buff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 2px 5px;
+  border: 1px solid rgba(233, 229, 216, 0.18);
+  border-left: 2px solid currentColor;
+  background: rgba(5, 7, 11, 0.55);
+  color: var(--heat);
+}
+
+.buff i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  background: currentColor;
+}
+
+.buff b {
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: rgba(233, 229, 216, 0.92);
+}
+
+.buff em {
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+
+.buff.is-ending { animation: buffBlink 0.5s steps(2, end) infinite; }
+
+@keyframes buffBlink {
+  50% { opacity: 0.35; }
+}
+
+@media (max-width: 320px) {
+  .loadout { display: none; }
 }
 
 .tools { display: flex; gap: 5px; margin-top: 7px; pointer-events: auto; }
