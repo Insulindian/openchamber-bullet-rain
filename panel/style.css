@@ -142,29 +142,29 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  margin-top: 7px;
+  margin-top: 9px;
 }
 
 .stat {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-family: var(--face);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: rgba(233, 229, 216, 0.62);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: rgba(233, 229, 216, 0.7);
   white-space: nowrap;
 }
 
-.stat span { width: 26px; }
+.stat span { width: 28px; }
 
 .stat i { display: inline-flex; gap: 2px; }
 
 .stat i b {
   display: block;
-  width: 8px;
-  height: 6px;
-  border: 1px solid rgba(233, 229, 216, 0.26);
+  width: 9px;
+  height: 7px;
+  border: 1px solid rgba(233, 229, 216, 0.28);
 }
 
 .stat i b.on { background: var(--heat); border-color: var(--heat); }
