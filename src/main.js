@@ -164,6 +164,7 @@ var player = { x: 0, y: 0, r: 4.2, focus: false, alive: true };
 var keys = /* @__PURE__ */ new Set();
 var pointerDown = false;
 var moveTarget = { x: 0, y: 0 };
+var pointer = { x: 0, y: 0 };
 var enemies = [];
 var ebullets = [];
 var pbullets = [];
@@ -1880,38 +1881,47 @@ function ensureAudio() {
     try {
       audio = new (window.AudioContext || window.webkitAudioContext)();
 
+      const highpass = audio.createBiquadFilter();
+      highpass.type = "highpass";
+      highpass.frequency.value = 34;
+      const lowpass = audio.createBiquadFilter();
+      lowpass.type = "lowpass";
+      lowpass.frequency.value = 7500;
+      lowpass.Q.value = 0.4;
+
       const comp = audio.createDynamicsCompressor();
-      comp.threshold.value = -16;
+      comp.threshold.value = -18;
       comp.knee.value = 10;
-      comp.ratio.value = 4;
-      comp.attack.value = 0.004;
-      comp.release.value = 0.22;
+      comp.ratio.value = 3;
+      comp.attack.value = 0.006;
+      comp.release.value = 0.25;
 
       const shaper = audio.createWaveShaper();
       const curve = new Float32Array(1024);
       for (let i = 0; i < 1024; i += 1) {
         const x = i / 512 - 1;
-        curve[i] = Math.tanh(x * 2.2);
+        curve[i] = Math.tanh(x * 1.8);
       }
       shaper.curve = curve;
       shaper.oversample = "2x";
 
       master = audio.createGain();
-      master.gain.value = 0.45;
-      master.connect(shaper).connect(comp);
+      master.gain.value = 0.62;
+      master.connect(highpass).connect(lowpass).connect(shaper).connect(comp);
       comp.connect(audio.destination);
 
       try {
         const conv = audio.createConvolver();
-        conv.buffer = makeImpulse(0.9, 2.4);
+        conv.buffer = makeImpulse(1.2, 2.2);
         const send = audio.createGain();
-        send.gain.value = 0.08;
+        send.gain.value = 0.1;
         master.connect(send).connect(conv).connect(comp);
       } catch {
         // Dry only if convolution is unavailable.
       }
 
-      noiseBuf = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.5), audio.sampleRate);
+      // White noise shaped per sound; lowpass/bandpass layers give it body.
+      noiseBuf = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.6), audio.sampleRate);
       const data = noiseBuf.getChannelData(0);
       for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
     } catch {
@@ -2012,103 +2022,128 @@ function noiseHit(duration, gain, cutoff, pan = 0, delay = 0) {
   src.stop(at + duration);
 }
 
+function noiseBand(duration, gain, freq, q = 1, pan = 0, delay = 0) {
+  if (!soundOn || !audio || !master || !noiseBuf) return;
+  const at = audio.currentTime + delay;
+  const src = audio.createBufferSource();
+  src.buffer = noiseBuf;
+  src.playbackRate.value = rand(0.9, 1.15);
+  const filter = audio.createBiquadFilter();
+  filter.type = "bandpass";
+  filter.frequency.value = freq;
+  filter.Q.value = q;
+  const amp = audio.createGain();
+  amp.gain.setValueAtTime(gain, at);
+  amp.gain.exponentialRampToValueAtTime(1e-4, at + duration);
+  const panner = audio.createStereoPanner();
+  panner.pan.value = pan;
+  src.connect(filter).connect(amp).connect(panner).connect(master);
+  src.start(at);
+  src.stop(at + duration);
+}
+
 var sfx = {
   start() {
-    blip(392, 0.14, "triangle", 0.06, 80, 0, 0, 1800);
-    blip(587, 0.2, "triangle", 0.05, 120, 0, 0.1, 2200);
-    sub(98, 0.26, 0.05, 20);
+    blip(330, 0.18, "triangle", 0.07, 90, 0, 0, 1300);
+    blip(494, 0.24, "triangle", 0.06, 130, 0, 0.12, 1600);
+    sub(82, 0.32, 0.08, 24);
   },
   wave() {
-    blip(440, 0.12, "sine", 0.04, 40, 0, 0, 1400);
-    blip(660, 0.16, "sine", 0.032, 60, 0, 0.09, 1800);
+    blip(392, 0.16, "triangle", 0.05, 40, 0, 0, 1200);
+    blip(587, 0.2, "triangle", 0.04, 60, 0, 0.1, 1500);
   },
   warn() {
     for (let i = 0; i < 3; i += 1) {
-      sub(62, 0.26, 0.09, -14, i * 0.26);
-      blip(124, 0.2, "sawtooth", 0.035, -24, 0, i * 0.26, 420);
+      sub(54, 0.3, 0.12, -10, i * 0.28);
+      blip(108, 0.24, "sawtooth", 0.04, -18, 0, i * 0.28, 340);
+      noiseBand(0.24, 0.03, 180, 0.7, 0, i * 0.28);
     }
   },
   phase() {
-    blip(300, 0.6, "sawtooth", 0.06, -240, 0, 0, 800);
-    noiseHit(0.5, 0.08, 1600);
-    sub(80, 0.5, 0.08, -40);
+    blip(240, 0.7, "sawtooth", 0.07, -190, 0, 0, 650);
+    noiseHit(0.6, 0.1, 1100);
+    sub(70, 0.6, 0.11, -34);
   },
   shot() {
     const now = performance.now();
-    if (now - lastShotSound < 65) return;
+    if (now - lastShotSound < 58) return;
     lastShotSound = now;
     const pan = panOf(player.x);
-    blip(rand(320, 360), 0.05, "sawtooth", 0.022, -190, pan, 0, 1100);
-    noiseHit(0.035, 0.012, 3600, pan);
-    sub(150, 0.045, 0.01, -60);
+    blip(rand(212, 238), 0.075, "triangle", 0.034, -95, pan, 0, 760);
+    noiseBand(0.025, 0.02, rand(1700, 2300), 0.8, pan);
+    sub(92, 0.06, 0.028, -22);
   },
   graze() {
     const now = performance.now();
     if (now - lastGrazeSound < 55) return;
     lastGrazeSound = now;
-    blip(1400, 0.025, "triangle", 0.008, -300, panOf(player.x), 0, 4200);
+    blip(1150, 0.03, "triangle", 0.01, -320, panOf(player.x), 0, 3600);
   },
   chain(level) {
-    blip(360 + level * 36, 0.09, "triangle", 0.03, 50, 0, 0, 1600);
-    sub(110, 0.08, 0.02, 20);
+    blip(300 + level * 30, 0.12, "triangle", 0.04, 60, 0, 0, 1200);
+    sub(100, 0.1, 0.03, 20);
   },
   hit() {
-    sub(62, 0.5, 0.16, -30);
-    noiseHit(0.45, 0.14, 1100);
-    blip(150, 0.35, "sawtooth", 0.07, -90, 0, 0, 600);
+    sub(48, 0.6, 0.2, -22);
+    noiseHit(0.5, 0.16, 900);
+    noiseBand(0.08, 0.06, 3800, 0.7);
+    blip(115, 0.4, "sawtooth", 0.055, -60, 0, 0, 480);
   },
   alarm() {
-    sub(70, 0.14, 0.08, -20);
-    blip(140, 0.14, "square", 0.035, -30, 0, 0, 500);
-    sub(70, 0.14, 0.06, -20, 0.2);
-    blip(140, 0.14, "square", 0.03, -30, 0, 0.2, 500);
+    sub(62, 0.18, 0.1, -12);
+    blip(124, 0.18, "square", 0.03, -20, 0, 0, 420);
+    sub(62, 0.18, 0.08, -12, 0.22);
+    blip(124, 0.18, "square", 0.026, -20, 0, 0.22, 420);
   },
   explode(big) {
     if (big) {
-      sub(64, 0.8, 0.18, -36);
-      noiseHit(0.75, 0.14, 1500);
-      noiseHit(0.28, 0.07, 320, 0, 0.02);
-      blip(110, 0.5, "sawtooth", 0.05, -70, 0, 0, 500);
+      sub(50, 1.1, 0.24, -26);
+      noiseHit(0.95, 0.17, 1200);
+      noiseBand(0.5, 0.1, 320, 0.6, 0.15, 0.01);
+      noiseBand(0.09, 0.07, 4200, 0.8);
+      blip(96, 0.6, "sine", 0.09, -46, 0, 0, 380);
     } else {
-      sub(105, 0.2, 0.07, -55);
-      noiseHit(0.2, 0.05, 2400);
-      blip(210, 0.13, "sawtooth", 0.022, -120, 0, 0, 800);
+      sub(86, 0.24, 0.1, -44);
+      noiseHit(0.24, 0.07, 1700);
+      noiseBand(0.06, 0.035, 3600, 0.8);
+      blip(230, 0.14, "triangle", 0.025, -110, 0, 0, 700);
     }
   },
   pickup(type) {
     const base = { over: 660, slow: 520, shield: 440, pulse: 300, repair: 600 }[type] || 560;
-    blip(base, 0.1, "triangle", 0.035, 100, 0, 0, 2400);
-    blip(base * 1.5, 0.14, "triangle", 0.028, 140, 0, 0.06, 2800);
-    sub(base / 4, 0.1, 0.02, 10);
+    blip(base, 0.13, "triangle", 0.045, 140, 0, 0, 2000);
+    blip(base * 1.5, 0.18, "triangle", 0.035, 180, 0, 0.07, 2400);
+    sub(base / 5, 0.12, 0.025, 12);
   },
   heal() {
-    blip(523, 0.1, "triangle", 0.035, 60, 0, 0, 2200);
-    blip(784, 0.12, "triangle", 0.03, 80, 0, 0.07, 2600);
-    blip(1046, 0.16, "triangle", 0.025, 100, 0, 0.14, 3000);
-    sub(130, 0.2, 0.03, 30);
+    blip(523, 0.14, "triangle", 0.045, 70, 0, 0, 1800);
+    blip(784, 0.18, "triangle", 0.038, 90, 0, 0.08, 2200);
+    blip(1046, 0.22, "triangle", 0.03, 110, 0, 0.16, 2600);
+    sub(130, 0.24, 0.04, 30);
   },
   shieldBreak() {
-    noiseHit(0.22, 0.07, 2600);
-    blip(340, 0.28, "triangle", 0.05, 120, 0, 0, 1800);
-    sub(90, 0.2, 0.06, -30);
+    noiseHit(0.26, 0.09, 2200);
+    noiseBand(0.1, 0.05, 3000, 0.7);
+    blip(340, 0.32, "triangle", 0.055, 120, 0, 0, 1600);
+    sub(84, 0.26, 0.08, -26);
   },
   clear() {
-    blip(440, 0.14, "triangle", 0.04, 60, 0, 0, 2000);
-    blip(660, 0.2, "triangle", 0.035, 80, 0, 0.1, 2400);
-    sub(110, 0.25, 0.04, 10);
+    blip(440, 0.18, "triangle", 0.05, 60, 0, 0, 1600);
+    blip(660, 0.24, "triangle", 0.042, 80, 0, 0.11, 2000);
+    sub(104, 0.28, 0.05, 10);
   },
   confirm() {
-    blip(360, 0.07, "square", 0.02, 90, 0, 0, 1200);
-    blip(540, 0.09, "square", 0.017, 110, 0, 0.05, 1400);
+    blip(340, 0.08, "triangle", 0.025, 70, 0, 0, 1100);
+    blip(510, 0.1, "triangle", 0.02, 90, 0, 0.05, 1300);
   },
   expire() {
-    blip(480, 0.16, "triangle", 0.03, -220, 0, 0, 1400);
+    blip(460, 0.2, "triangle", 0.035, -220, 0, 0, 1200);
   },
   death() {
-    sub(60, 1.4, 0.18, -30);
-    noiseHit(1, 0.12, 1200);
-    blip(320, 1.2, "sawtooth", 0.07, -280, 0, 0, 700);
-    blip(160, 1.4, "sine", 0.05, -120, 0, 0.15, 900);
+    sub(48, 1.6, 0.24, -26);
+    noiseHit(1.2, 0.16, 1000);
+    blip(300, 1.4, "sawtooth", 0.075, -260, 0, 0, 600);
+    blip(150, 1.6, "sine", 0.06, -110, 0, 0.18, 700);
   }
 };
 function resize() {
@@ -2682,7 +2717,7 @@ function draw() {
       box.style.cssText = "position:fixed;left:8px;top:64px;z-index:90;margin:0;padding:4px 6px;background:rgba(0,0,0,0.7);color:#9fe;font:10px monospace;white-space:pre";
       document.body.append(box);
     }
-    box.textContent = `t=${state.time.toFixed(1)} ${state.mode} W${state.wave} e=${enemies.length} eb=${ebullets.length} pb=${pbullets.length} boss=${state.boss ? Math.round(state.boss.hp) : "-"} score=${state.score} ${Math.round(state.w)}x${state.h} dpr=${state.dpr} canvas=${canvas.width}x${canvas.height} rz=${state.resizes} dr=${state.draws}`;
+    box.textContent = `t=${state.time.toFixed(1)} ${state.mode} W${state.wave} e=${enemies.length} eb=${ebullets.length} pb=${pbullets.length} boss=${state.boss ? Math.round(state.boss.hp) : "-"} score=${state.score} p=${Math.round(player.x)},${Math.round(player.y)} ${Math.round(state.w)}x${state.h} dpr=${state.dpr} canvas=${canvas.width}x${canvas.height} rz=${state.resizes} dr=${state.draws}`;
   }
 }
 function update(dt) {
