@@ -1840,11 +1840,13 @@ ${GUEST_UI_LOOK_CSS}`;
   };
   var WORLD_H = 780;
   var BEST_KEY = "bullet-rain:best";
+  var BEST_WAVE_KEY = "bullet-rain:wave";
   var LIVES = 3;
   var PARAMS = new URLSearchParams(window.location.search);
   var AUTOPILOT = PARAMS.has("auto");
   var SPEED = Math.max(1, Math.min(10, Number(PARAMS.get("speed")) || 1));
   var START_WAVE = Math.max(1, Math.min(20, Number(PARAMS.get("wave")) || 1));
+  var DEBUG_WAVE = PARAMS.has("wave");
   var SIM = Math.max(1, Math.min(900, Number(PARAMS.get("sim")) || 1));
   var TIMERS = PARAMS.has("timers");
   var DBG = PARAMS.has("dbg");
@@ -1938,6 +1940,40 @@ ${GUEST_UI_LOOK_CSS}`;
     } catch {
     }
     bestEl.textContent = format(best);
+    if (state.mode === "menu") toMenu();
+  }
+  var bestWave = readLocalWave();
+  function readLocalWave() {
+    try {
+      const raw = window.localStorage.getItem(BEST_WAVE_KEY);
+      const value = raw ? Number(raw) : 1;
+      return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 1;
+    } catch {
+      return 1;
+    }
+  }
+  function persistWave() {
+    try {
+      window.localStorage.setItem(BEST_WAVE_KEY, String(bestWave));
+    } catch {
+    }
+    try {
+      void host.storage.set(BEST_WAVE_KEY, bestWave).catch(() => void 0);
+    } catch {
+    }
+  }
+  async function loadWave() {
+    try {
+      const stored = await host.storage.get(BEST_WAVE_KEY);
+      if (typeof stored === "number" && Number.isFinite(stored) && stored > bestWave) bestWave = Math.floor(stored);
+    } catch {
+    }
+    if (state.mode === "menu") toMenu();
+  }
+  function markWave(n) {
+    if (DEBUG_WAVE || n <= bestWave) return;
+    bestWave = n;
+    persistWave();
   }
   var state = {
     mode: "menu",
@@ -1981,6 +2017,7 @@ ${GUEST_UI_LOOK_CSS}`;
     pendingPick: false,
     tipShown: false,
     tipTimer: 0,
+    runStartWave: 1,
     resizes: 0,
     draws: 0
   };
@@ -3198,6 +3235,7 @@ ${GUEST_UI_LOOK_CSS}`;
   }
   function startWave(n) {
     state.wave = n;
+    markWave(n);
     state.heavyCount = 0;
     state.splitCount = 0;
     state.wallCount = 0;
@@ -3372,14 +3410,19 @@ ${GUEST_UI_LOOK_CSS}`;
       bestEl.textContent = format(best);
       persistBest();
     }
+    const actions = bestWave > 1 ? [
+      { label: `\u518D\u6765\u4E00\u5C40 \u7B2C ${bestWave} \u6CE2`, primary: true, run: () => startRun(bestWave) },
+      { label: "\u4ECE\u7B2C 1 \u6CE2\u5F00\u59CB", run: () => startRun(1) },
+      { label: "\u8FD4\u56DE", run: () => toMenu() }
+    ] : [
+      { label: "\u518D\u6765\u4E00\u5C40", primary: true, run: () => startRun(1) },
+      { label: "\u8FD4\u56DE", run: () => toMenu() }
+    ];
     showGate({
       kicker: "\u4FE1\u53F7\u4E2D\u65AD \xB7 SIGNAL LOST",
       title: format(state.score),
-      text: `\u6CE2\u6B21 <strong>${state.wave}</strong> \xB7 \u533A\u57DF <strong>${zoneNow().name}</strong> \xB7 \u64E6\u5F39 <strong>${state.graze}</strong><br>\u6700\u4F73 <strong>${format(best)}</strong>${isBest ? " \xB7 <em>NEW RECORD</em>" : ""}`,
-      actions: [
-        { label: "\u518D\u6765\u4E00\u5C40", primary: true, run: startRun },
-        { label: "\u8FD4\u56DE", run: () => toMenu() }
-      ]
+      text: `\u6CE2\u6B21 <strong>${state.wave}</strong> \xB7 \u533A\u57DF <strong>${zoneNow().name}</strong> \xB7 \u64E6\u5F39 <strong>${state.graze}</strong><br>\u6700\u9AD8 <strong>\u7B2C ${bestWave} \u6CE2</strong> \xB7 \u6700\u4F73 <strong>${format(best)}</strong>${isBest ? " \xB7 <em>NEW RECORD</em>" : ""}`,
+      actions
     });
   }
   function showGate({ kicker, title, text, actions }) {
@@ -3424,8 +3467,11 @@ ${GUEST_UI_LOOK_CSS}`;
     showGate({
       kicker: "VERTICAL DANMAKU",
       title: "\u5F39\u96E8",
-      text: `\u81EA\u52A8\u5C04\u51FB\uFF0C\u51FB\u7834\u654C\u673A\uFF0C\u8EB2\u5F00\u5F39\u5E55\u3002<br>\u6BCF\u6CE2\u7ED3\u675F\u9009\u4E00\u9879\u5F3A\u5316\uFF1A<strong>\u5C04\u901F\u3001\u4F24\u5BB3\u3001\u591A\u91CD\u5C04\u51FB</strong>\u3002<br>\u51FB\u7834\u654C\u673A\u6389\u843D\u9053\u5177\uFF0C\u9760\u8FD1\u81EA\u52A8\u5438\u53D6\uFF1B\u6BCF\u6CE2\u7ED3\u675F\u6062\u590D <strong>1 HP</strong>\u3002${MENU_LEGEND}`,
-      actions: [{ label: "\u51FA\u51FB", primary: true, run: startRun }]
+      text: `\u81EA\u52A8\u5C04\u51FB\uFF0C\u51FB\u7834\u654C\u673A\uFF0C\u8EB2\u5F00\u5F39\u5E55\u3002<br>\u5206\u6570\u8FBE\u5230\u9608\u503C\u65F6\u6682\u505C\u9009\u62E9\u5F3A\u5316\uFF1A<strong>\u5C04\u901F\u3001\u4F24\u5BB3\u3001\u591A\u91CD\u5C04\u51FB</strong>\u3002<br>\u6700\u9AD8 <strong>\u7B2C ${bestWave} \u6CE2</strong> \xB7 \u6700\u4F73 <strong>${format(best)}</strong>\u3002${MENU_LEGEND}`,
+      actions: bestWave > 1 ? [
+        { label: `\u7EE7\u7EED \u7B2C ${bestWave} \u6CE2`, primary: true, run: () => startRun(bestWave) },
+        { label: "\u4ECE\u7B2C 1 \u6CE2\u5F00\u59CB", run: () => startRun(1) }
+      ] : [{ label: "\u51FA\u51FB", primary: true, run: () => startRun(1) }]
     });
     updateHud();
     syncPauseButton();
@@ -3475,17 +3521,28 @@ ${GUEST_UI_LOOK_CSS}`;
     waveEl.textContent = "W01 \xB7 \u6DF1\u7A7A";
     updatePower();
   }
-  function startRun() {
+  function grantStarter(wave) {
+    const grant = Math.min(12, Math.floor(wave / 3));
+    for (let i = 0; i < grant; i += 1) {
+      const up = UPGRADES[i % UPGRADES.length];
+      if (state.up[up.id] < up.max) state.up[up.id] += 1;
+    }
+  }
+  function startRun(fromWave) {
+    const wave = DEBUG_WAVE ? START_WAVE : clamp(Math.floor(fromWave || 1), 1, 999);
     hideGate();
     upgradeEl.hidden = true;
     resetRun();
+    grantStarter(wave);
+    state.runStartWave = wave;
+    updatePower();
     const hp = Number(PARAMS.get("hp"));
     if (hp > 0) state.lives = clamp(Math.floor(hp), 1, LIVES);
     const pick = Number(PARAMS.get("pick"));
     if (pick > 0) state.pickAt = pick;
     state.mode = "playing";
     state.fireTimer = 0;
-    startWave(START_WAVE);
+    startWave(wave);
     updateHud();
     syncPauseButton();
     if (!state.tipShown) {
@@ -3510,7 +3567,7 @@ ${GUEST_UI_LOOK_CSS}`;
             hideGate();
             syncPauseButton();
           } },
-          { label: "\u91CD\u65B0\u5F00\u59CB", run: startRun }
+          { label: "\u91CD\u65B0\u5F00\u59CB", run: () => startRun(state.runStartWave) }
         ]
       });
     } else if (state.mode === "paused") {
@@ -3636,11 +3693,11 @@ ${GUEST_UI_LOOK_CSS}`;
       }
       if (key === "p" || key === "escape") {
         if (state.mode === "playing" || state.mode === "paused") togglePause();
-        else if (state.mode === "menu") startRun();
+        else if (state.mode === "menu") startRun(bestWave);
         return;
       }
       if (key === "r" && (state.mode === "playing" || state.mode === "paused" || state.mode === "over")) {
-        startRun();
+        startRun(state.runStartWave);
         return;
       }
       if (key === " ") keys.add("space");
@@ -4691,6 +4748,7 @@ ${GUEST_UI_LOOK_CSS}`;
     if (DBG) requestAnimationFrame(trackFps);
     void loadBest();
     void loadSoundPref();
+    void loadWave();
     if (AUTOPILOT) {
       window.setTimeout(() => {
         if (state.mode === "menu") startRun();
