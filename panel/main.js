@@ -1968,6 +1968,7 @@ ${GUEST_UI_LOOK_CSS}`;
     heavyCount: 0,
     splitCount: 0,
     wallCount: 0,
+    packHistory: [],
     fireTimer: 0,
     threats: 0,
     threatTimer: 0,
@@ -2770,16 +2771,33 @@ ${GUEST_UI_LOOK_CSS}`;
     if (e.t > 0.5 && (e.y > state.h + 80 || e.y < -220 || e.x < -160 || e.x > state.w + 160)) e.dead = true;
   }
   var FORMATIONS = [
-    { id: "swarm", cost: 6, minWave: 1 },
-    { id: "pincer", cost: 8, minWave: 2 },
-    { id: "rush", cost: 8, minWave: 2 },
-    { id: "line", cost: 10, minWave: 2 },
-    { id: "snipe", cost: 9, minWave: 3 },
-    { id: "arc", cost: 12, minWave: 4 },
-    { id: "split", cost: 14, minWave: 5 },
-    { id: "heavy", cost: 12, minWave: 6 },
-    { id: "wall", cost: 16, minWave: 7 }
+    { id: "swarm", cost: 6, minWave: 1, weight: 3 },
+    { id: "pincer", cost: 8, minWave: 2, weight: 2.2 },
+    { id: "rush", cost: 8, minWave: 2, weight: 2.4 },
+    { id: "line", cost: 10, minWave: 2, weight: 2.2 },
+    { id: "snipe", cost: 9, minWave: 3, weight: 1.2 },
+    { id: "arc", cost: 12, minWave: 3, weight: 1.3 },
+    { id: "split", cost: 14, minWave: 4, weight: 0.8 },
+    { id: "heavy", cost: 12, minWave: 5, weight: 0.5 },
+    { id: "wall", cost: 16, minWave: 7, weight: 0.4 }
   ];
+  function weightedFormation(options) {
+    const recent = state.packHistory;
+    let pool = options;
+    if (recent.length >= 2) {
+      const last2 = recent[recent.length - 1];
+      const prev = recent[recent.length - 2];
+      const filtered = options.filter((f) => !(f.id === last2 && f.id === prev));
+      if (filtered.length > 0) pool = filtered;
+    }
+    const total = pool.reduce((sum, f) => sum + f.weight, 0);
+    let roll = Math.random() * total;
+    for (const f of pool) {
+      roll -= f.weight;
+      if (roll <= 0) return f;
+    }
+    return pool[0];
+  }
   function spawnFormation(id) {
     const w = state.w;
     if (id === "swarm") {
@@ -3029,7 +3047,7 @@ ${GUEST_UI_LOOK_CSS}`;
   }
   function checkPick() {
     while (state.score >= state.pickAt) {
-      state.pickAt = Math.round(state.pickAt * 1.8);
+      state.pickAt = Math.round(state.pickAt * 2);
       state.pickQueue = Math.min(3, state.pickQueue + 1);
     }
   }
@@ -3172,10 +3190,13 @@ ${GUEST_UI_LOOK_CSS}`;
     state.heavyCount = 0;
     state.splitCount = 0;
     state.wallCount = 0;
+    state.packHistory = [];
     state.waveBudget = Math.round((32 + n * 12) * (0.9 + state.pressure * 0.2));
     state.spawnTimer = 1;
     state.waveQuiet = 0;
     state.bossPending = n % 4 === 0;
+    const totalUp = state.up.rate + state.up.dmg + state.up.stream;
+    if (totalUp < Math.floor(n / 3)) state.pickQueue = Math.min(3, state.pickQueue + 1);
     const zoneIndex = Math.floor((n - 1) / 4);
     const changed = zoneIndex !== backdrop.zone;
     if (changed) setZone(zoneIndex);
@@ -3212,7 +3233,7 @@ ${GUEST_UI_LOOK_CSS}`;
       state.spawnTimer -= dt;
       const cap = 9 + Math.min(9, Math.floor(state.wave * 0.7));
       if (state.spawnTimer <= 0 && enemies.length < cap) {
-        const heavyMax = state.wave < 8 ? 1 : 2;
+        const heavyMax = state.wave >= 8 && state.pressure > 0.35 ? 2 : 1;
         const options = FORMATIONS.filter((f) => {
           if (f.minWave > state.wave || f.cost > state.waveBudget) return false;
           if (f.id === "heavy" && state.heavyCount >= heavyMax) return false;
@@ -3223,17 +3244,21 @@ ${GUEST_UI_LOOK_CSS}`;
         if (options.length === 0) {
           state.waveBudget = 0;
         } else {
-          const pack = options[Math.floor(Math.random() * options.length)];
+          const pack = weightedFormation(options);
           spawnFormation(pack.id);
           countSpawn(pack.id);
           state.waveBudget -= pack.cost;
+          state.packHistory.push(pack.id);
+          if (state.packHistory.length > 4) state.packHistory.shift();
           const light = ["swarm", "rush", "line", "snipe", "arc"];
-          if (state.wave >= 6 && state.pressure > 0.35 && light.includes(pack.id) && state.waveBudget >= 6 && enemies.length < cap - 4) {
+          if (state.wave >= 8 && state.pressure > 0.6 && light.includes(pack.id) && state.waveBudget >= 6 && enemies.length < cap - 4) {
             const extraOptions = options.filter((f) => light.includes(f.id) && f.cost <= state.waveBudget);
-            const extra = extraOptions[Math.floor(Math.random() * extraOptions.length)];
-            if (extra) {
+            if (extraOptions.length > 0) {
+              const extra = weightedFormation(extraOptions);
               spawnFormation(extra.id);
               state.waveBudget -= extra.cost;
+              state.packHistory.push(extra.id);
+              if (state.packHistory.length > 4) state.packHistory.shift();
             }
           }
           state.spawnTimer = Math.max(2, rand(2.9, 4) - state.wave * 0.04) * (1.05 - state.pressure * 0.12);
