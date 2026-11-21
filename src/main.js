@@ -153,6 +153,7 @@ var state = {
   splitCount: 0,
   wallCount: 0,
   packHistory: [],
+  eliteCooldown: 2,
   fireTimer: 0,
   threats: 0,
   threatTimer: 0,
@@ -572,7 +573,7 @@ function spawnEnemy(kind, x, y) {
 function spawnBoss() {
   const variant = ((Math.floor(state.wave / 4) - 1) % 3 + 3) % 3;
   const spec = BOSSES[variant];
-  const hp = 200 + state.wave * 26 + state.wave * state.wave * 3;
+  const hp = 240 + state.wave * 32 + state.wave * state.wave * 4;
   const e = {
     kind: "boss",
     tier: 8,
@@ -698,15 +699,15 @@ function bossVolley(e) {
 
   if (v === 0) {
     if (e.pattern === 0) {
-      fireRing(e.x, e.y, heavy ? 22 : 18, speed * 0.55, e.spin, 0.8);
+      fireRing(e.x, e.y, heavy ? 24 : 20, speed * 0.6, e.spin, 0.75);
       e.spin += 0.19;
     } else if (e.pattern === 1) {
-      fireFan(e.x, e.y, heavy ? 7 : 5, 0.8, speed * 1, "needle", 0.04);
+      fireFan(e.x, e.y, heavy ? 8 : 6, 0.75, speed * 1.12, "needle", 0.04);
     } else if (e.pattern === 2) {
-      e.cont = { kind: "spiral", timer: 2.6, every: 0.12, tick: 0, arms: heavy ? 3 : 2, angle: rand(0, TAU) };
+      e.cont = { kind: "spiral", timer: 2.6, every: 0.11, tick: 0, arms: heavy ? 3 : 2, angle: rand(0, TAU) };
     } else {
       for (let k = 0; k < 4; k += 1) {
-        fireFan(e.x, e.y, 4, 0.5, speed * 0.5, "orb", 0.03, (k * Math.PI) / 2 + e.t * 0.25);
+        fireFan(e.x, e.y, 5, 0.5, speed * 0.5, "orb", 0.03, (k * Math.PI) / 2 + e.t * 0.25);
       }
     }
   } else if (v === 1) {
@@ -725,11 +726,11 @@ function bossVolley(e) {
     if (e.pattern === 0) {
       e.cont = { kind: "spiral", timer: 2.8, every: 0.11, tick: 0, arms: heavy ? 3 : 2, angle: rand(0, TAU) };
     } else if (e.pattern === 1) {
-      fireRing(e.x, e.y, heavy ? 20 : 16, speed * 0.5, e.spin, 0.8);
+      fireRing(e.x, e.y, heavy ? 22 : 18, speed * 0.52, e.spin, 0.75);
       e.spin += 0.23;
-      fireFan(e.x, e.y, 4, 0.45, speed * 0.9, "needle", 0.04);
+      fireFan(e.x, e.y, 5, 0.45, speed * 0.95, "needle", 0.04);
     } else if (e.pattern === 2) {
-      e.cont = { kind: "wall", timer: 2.4, every: 0.3, tick: 0, side: 1 };
+      e.cont = { kind: "wall", timer: 2.4, every: 0.26, tick: 0, side: 1 };
     } else {
       fireRing(e.x, e.y, 12, speed * 0.38, rand(0, TAU), 1);
     }
@@ -746,11 +747,11 @@ function bossCont(e, dt) {
     c.tick = c.every;
     if (c.kind === "spiral") {
       c.angle += 0.34;
-      for (let a = 0; a < c.arms; a += 1) shootOrb(e.x, e.y, c.angle + (a / c.arms) * TAU, speed * 0.62);
+      for (let a = 0; a < c.arms; a += 1) shootOrb(e.x, e.y, c.angle + (a / c.arms) * TAU, speed * 0.66);
     } else if (c.kind === "sweep") {
       c.spread += 0.17 * c.dir;
       if (Math.abs(c.spread) > 0.7) c.dir *= -1;
-      shootNeedle(e.x, e.y, aimAt(e.x, e.y) + c.spread, speed * 0.95);
+      shootNeedle(e.x, e.y, aimAt(e.x, e.y) + c.spread, speed * 1);
     } else if (c.kind === "ring") {
       c.angle += 0.58;
       shootOrb(e.x, e.y, c.angle, speed * 0.72);
@@ -760,14 +761,14 @@ function bossCont(e, dt) {
       // Five columns, centre column left open as a lane.
       for (let i = -2; i <= 2; i += 1) {
         if (i === 0) continue;
-        shootOrb(e.x + i * 16, e.y, Math.PI / 2 + i * 0.22 + sway * 0.16, speed * 0.6);
+        shootOrb(e.x + i * 16, e.y, Math.PI / 2 + i * 0.22 + sway * 0.16, speed * 0.65);
       }
     } else if (c.kind === "curtain") {
       // A lane of needles missing, and the door only shifts one lane per row.
       c.lane = clamp(c.lane + [-1, 0, 0, 1][Math.floor(Math.random() * 4)], 0, 4);
       for (let i = 0; i < 5; i += 1) {
         if (i === c.lane) continue;
-        shootNeedle(state.w * (0.1 + i * 0.2), 18, Math.PI / 2, speed * 0.78);
+        shootNeedle(state.w * (0.1 + i * 0.2), 18, Math.PI / 2, speed * 0.82);
       }
     }
   }
@@ -821,7 +822,7 @@ function updateBoss(e, dt) {
     e.cont = null;
   }
 
-  const pace = e.phase === 3 ? 0.72 : e.phase === 2 ? 0.85 : 1;
+  const pace = e.phase === 3 ? 0.7 : e.phase === 2 ? 0.84 : 1;
 
   // Every pattern is announced by a short wind-up ring, so it can be read
   // and repositioned for before the first bullet exists.
@@ -832,16 +833,16 @@ function updateBoss(e, dt) {
     e.patternT -= dt;
     if (e.patternT <= 0) {
       e.pattern = (e.pattern + 1) % 4;
-      e.patternT = 3 * pace;
+      e.patternT = 2.8 * pace;
       e.cont = null;
-      e.windup = 0.45;
+      e.windup = 0.38;
     }
   }
 
   if (e.windup <= 0) {
     e.fire -= dt;
     if (e.fire <= 0) {
-      e.fire = e.phase === 3 ? 0.5 : e.phase === 2 ? 0.62 : 0.76;
+      e.fire = e.phase === 3 ? 0.45 : e.phase === 2 ? 0.56 : 0.7;
       shootOrb(e.x + rand(-14, 14), e.y + 18, aimAt(e.x, e.y) + rand(-0.14, 0.14), bulletSpeed() * 0.8);
     }
   }
@@ -934,7 +935,7 @@ function updateEnemy(e, dt) {
       e.x += Math.sin(e.t * 0.8 + e.seed) * 22 * dt;
       e.fire -= dt;
       if (e.fire <= 0) {
-        e.fire = 2 / rk;
+        e.fire = 2.15 / rk;
         fireFan(e.x, e.y, 3, 0.3, bs * 0.92, "orb", 0.05);
       }
       if (state.waveBudget <= 0 && e.t > 32) e.leaving = true;
@@ -948,7 +949,7 @@ function updateEnemy(e, dt) {
       e.x = e.cx + Math.sin(e.t * 0.85) * e.span;
       e.fire -= dt;
       if (e.fire <= 0) {
-        e.fire = 2.15 / rk;
+        e.fire = 2.35 / rk;
         fireFan(e.x, e.y, 5, 0.52, bs * 0.95, "orb", 0.04);
       }
       if (state.waveBudget <= 0 && e.t > 32) e.leaving = true;
@@ -961,7 +962,7 @@ function updateEnemy(e, dt) {
     } else {
       e.fire -= dt;
       if (e.fire <= 0) {
-        e.fire = 0.18 / rk;
+        e.fire = 0.22 / rk;
         e.spin += 0.5;
         shootOrb(e.x, e.y, e.spin, bs * 0.72);
         shootOrb(e.x, e.y, e.spin + Math.PI, bs * 0.72);
@@ -978,14 +979,14 @@ function updateEnemy(e, dt) {
       e.x += Math.sin(e.t * 0.45) * 26 * dt;
       e.fire -= dt;
       if (e.fire <= 0) {
-        e.fire = 2.6 / rk;
+        e.fire = 3 / rk;
         const n = e.hp < e.max * 0.45 ? 18 : 14;
         fireRing(e.x, e.y, n, bs * 0.56, e.spin, 0.6);
         e.spin += 0.19;
       }
       e.burst -= dt;
       if (e.burst <= 0) {
-        e.burst = 1.25 / rk;
+        e.burst = 1.6 / rk;
         fireFan(e.x, e.y, 3, 0.32, bs, "needle", 0.03);
       }
       if (state.waveBudget <= 0 && e.t > 36) e.leaving = true;
@@ -1423,7 +1424,8 @@ function startWave(n) {
   state.splitCount = 0;
   state.wallCount = 0;
   state.packHistory = [];
-  state.waveBudget = Math.round((32 + n * 12) * (0.9 + state.pressure * 0.2));
+  state.eliteCooldown = 2;
+  state.waveBudget = Math.round((30 + n * 9) * (0.9 + state.pressure * 0.2));
   state.spawnTimer = 1;
   state.waveQuiet = 0;
   state.bossPending = n % 4 === 0;
@@ -1468,13 +1470,17 @@ function updateWave(dt) {
   }
   if (state.waveBudget > 0) {
     state.spawnTimer -= dt;
-    const cap = 9 + Math.min(9, Math.floor(state.wave * 0.7));
-    if (state.spawnTimer <= 0 && enemies.length < cap) {
-      const heavyMax = state.wave >= 8 && state.pressure > 0.35 ? 2 : 1;
+    const cap = 8 + Math.min(4, Math.floor(state.wave * 0.4));
+    if (state.spawnTimer <= 0 && enemies.length < cap - 3) {
+      const heavyMax = state.wave >= 12 && state.pressure > 0.6 ? 2 : 1;
+      const splitMax = state.wave >= 10 ? 2 : 1;
+      const eliteReady = state.eliteCooldown <= 0;
+      const ELITE = ["heavy", "split", "wall"];
       const options = FORMATIONS.filter((f) => {
         if (f.minWave > state.wave || f.cost > state.waveBudget) return false;
+        if (ELITE.includes(f.id) && !eliteReady) return false;
         if (f.id === "heavy" && state.heavyCount >= heavyMax) return false;
-        if (f.id === "split" && state.splitCount >= 2) return false;
+        if (f.id === "split" && state.splitCount >= splitMax) return false;
         if (f.id === "wall" && state.wallCount >= 1) return false;
         return true;
       });
@@ -1485,6 +1491,10 @@ function updateWave(dt) {
         spawnFormation(pack.id);
         countSpawn(pack.id);
         state.waveBudget -= pack.cost;
+        // Elites are separated by two light packs, so a wave cannot stack
+        // fortress + splitters + gun wall on top of each other.
+        if (ELITE.includes(pack.id)) state.eliteCooldown = 2;
+        else state.eliteCooldown = Math.max(0, state.eliteCooldown - 1);
         state.packHistory.push(pack.id);
         if (state.packHistory.length > 4) state.packHistory.shift();
 
@@ -1501,7 +1511,7 @@ function updateWave(dt) {
             if (state.packHistory.length > 4) state.packHistory.shift();
           }
         }
-        state.spawnTimer = Math.max(2, rand(2.9, 4) - state.wave * 0.04) * (1.05 - state.pressure * 0.12);
+        state.spawnTimer = Math.max(2.2, rand(3, 4.1) - state.wave * 0.035) * (1.05 - state.pressure * 0.12);
       }
     }
   }
