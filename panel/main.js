@@ -2426,7 +2426,7 @@ ${GUEST_UI_LOOK_CSS}`;
   function spawnBoss() {
     const variant = ((Math.floor(state.wave / 4) - 1) % 3 + 3) % 3;
     const spec = BOSSES[variant];
-    const hp = 240 + state.wave * 32 + state.wave * state.wave * 4;
+    const hp = 320 + state.wave * 46 + state.wave * state.wave * 6;
     const e = {
       kind: "boss",
       tier: 8,
@@ -2620,7 +2620,7 @@ ${GUEST_UI_LOOK_CSS}`;
     e.x = state.w / 2 + Math.sin(e.t * 0.55) * (state.w * 0.26);
     e.y = e.stopY + Math.sin(e.t * 1.5) * 10;
     e.spin += dt * 0.4;
-    if (e.phase === 1 && e.hp <= e.max * 0.5) {
+    if (e.phase === 1 && e.hp <= e.max * 0.55) {
       e.phase = 2;
       e.flash = 1;
       state.flash = 0.8;
@@ -3302,7 +3302,7 @@ ${GUEST_UI_LOOK_CSS}`;
           spawnFormation(pack.id);
           countSpawn(pack.id);
           state.waveBudget -= pack.cost;
-          if (ELITE.includes(pack.id)) state.eliteCooldown = 2;
+          if (ELITE.includes(pack.id)) state.eliteCooldown = 3;
           else state.eliteCooldown = Math.max(0, state.eliteCooldown - 1);
           state.packHistory.push(pack.id);
           if (state.packHistory.length > 4) state.packHistory.shift();
