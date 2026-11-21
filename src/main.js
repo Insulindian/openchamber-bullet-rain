@@ -665,10 +665,19 @@ function spawnEnemy(kind, x, y) {
   enemies.push(e);
   return e;
 }
+function playerDps() {
+  const streams = 2 + state.up.stream;
+  const interval = 0.13 * 0.84 ** state.up.rate;
+  return (streams * (1 + state.up.dmg)) / interval * 0.9;
+}
+
 function spawnBoss() {
   const variant = ((Math.floor(state.wave / 4) - 1) % 3 + 3) % 3;
   const spec = BOSSES[variant];
-  const hp = 320 + state.wave * 46 + state.wave * state.wave * 6;
+  // Boss length is measured in seconds of the player's current output, not a
+  // fixed HP wall: a weak build gets a shorter bar, a strong one a longer one.
+  const target = 14 + Math.min(12, state.wave * 0.4);
+  const hp = Math.round(clamp(playerDps() * target, 280, 12000));
   const e = {
     kind: "boss",
     tier: 9,
@@ -1151,6 +1160,15 @@ function updateEnemy(e, dt) {
       e.y -= 60 * dt;
     }
   }
+  // Late in a wave, a couple of stragglers should not hold the wave hostage.
+  if (
+    state.waveBudget <= 0 &&
+    enemies.length <= 3 &&
+    e.t > 10 &&
+    !["split", "drone", "rusher"].includes(e.kind)
+  ) {
+    e.leaving = true;
+  }
   if (e.t > 0.5 && (e.y > state.h + 80 || e.y < -220 || e.x < -160 || e.x > state.w + 160)) e.dead = true;
 }
 var FORMATIONS = [
@@ -1177,10 +1195,14 @@ function weightedFormation(options) {
     const filtered = options.filter((f) => !(f.id === last && f.id === prev));
     if (filtered.length > 0) pool = filtered;
   }
-  const total = pool.reduce((sum, f) => sum + f.weight, 0);
+  const totalWeight = (f) => {
+    const trimmed = state.wave >= 12 && ["swarm", "pincer", "rush"].includes(f.id) ? 0.55 : 1;
+    return f.weight * trimmed;
+  };
+  const total = pool.reduce((sum, f) => sum + totalWeight(f), 0);
   let roll = Math.random() * total;
   for (const f of pool) {
-    roll -= f.weight;
+    roll -= totalWeight(f);
     if (roll <= 0) return f;
   }
   return pool[0];
@@ -1505,6 +1527,8 @@ function damageEnemy(e, amount) {
     state.flash = Math.max(state.flash, 0.75);
     ebullets = [];
     healPlayer(1, false);
+    dropPickup(e.x + rand(-24, 24), e.y + 10, "repair");
+    state.pickQueue = Math.min(4, state.pickQueue + 1);
     spawnEnemy("drone", state.w * 0.24, -40);
     spawnEnemy("drone", state.w * 0.76, -40);
   }
@@ -1681,7 +1705,7 @@ function updateWave(dt) {
         state.waveBudget -= pack.cost;
         // Elites are separated by two light packs, so a wave cannot stack
         // fortress + splitters + gun wall on top of each other.
-        if (ELITE.includes(pack.id)) state.eliteCooldown = 2;
+        if (ELITE.includes(pack.id)) state.eliteCooldown = state.wave >= 12 ? 1 : 2;
         else state.eliteCooldown = Math.max(0, state.eliteCooldown - 1);
         state.packHistory.push(pack.id);
         if (state.packHistory.length > 4) state.packHistory.shift();
@@ -1699,7 +1723,7 @@ function updateWave(dt) {
             if (state.packHistory.length > 4) state.packHistory.shift();
           }
         }
-        state.spawnTimer = Math.max(2.2, rand(3, 4.1) - state.wave * 0.035) * (1.05 - state.pressure * 0.12);
+        state.spawnTimer = Math.max(1.6, rand(2.6, 3.6) - state.wave * 0.03) * (1.05 - state.pressure * 0.12);
       }
     }
   }
