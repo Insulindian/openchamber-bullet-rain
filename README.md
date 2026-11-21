@@ -25,7 +25,8 @@ https://github.com/Insulindian/openchamber-bullet-rain
 ## 内容
 
 - 7 种敌机，大小、颜色、机身下方方块数同时表示强度
-- 每 2 波一次强化：射速 / 伤害 / 多重射击
+- 强化由分数触发：12k 起，每次阈值 ×1.8，达到后暂停三选一
+- 波次连续过渡：清空后 1.9 秒过场，不弹菜单
 - 每 4 波一个首领，三形态、三阶段，半血与残血各提速一次
 - 每 4 波切换区域：深空 / 余烬 / 冰原 / 赤潮
 - 5 种临时道具：超载 / 迟滞 / 护盾 / 脉冲 / 修复
@@ -40,6 +41,6 @@ npm install
 npm run build
 ```
 
-调试参数：`?auto=1`、`?god=1`、`?wave=N`、`?speed=N`、`?steps=N`、`?drop=all`、`?hp=N`、`?dbg=1`。
+调试参数：`?auto=1`、`?god=1`、`?wave=N`、`?speed=N`、`?steps=N`、`?drop=all`、`?hp=N`、`?pick=N`、`?dbg=1`。
 
 画面全部由 Canvas 程序化绘制。字体 ZCOOL QingKe HuangYou + Chakra Petch（SIL OFL，`panel/fonts/` 内附授权）。

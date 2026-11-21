@@ -62,6 +62,8 @@ var hpNum = $("hp-num");
 var meterRate = $("meter-rate");
 var meterDmg = $("meter-dmg");
 var meterStream = $("meter-stream");
+var pickFill = $("pick-fill");
+var pickNum = $("pick-num");
 var bossbar = $("bossbar");
 var bossname = $("bossname");
 var bosshp = $("bosshp");
@@ -72,6 +74,7 @@ var gateText = $("gate-text");
 var gateActions = $("gate-actions");
 var upgradeEl = $("upgrade");
 var upgradeOptions = $("up-options");
+var upKicker = $("up-kicker");
 var loadingEl = $("loading");
 var pauseBtn = $("pause");
 var soundBtn = $("sound");
@@ -155,6 +158,9 @@ var state = {
   shield: 0,
   buff: { over: 0, slow: 0 },
   up: { rate: 0, dmg: 0, stream: 0 },
+  pickAt: 12000,
+  pickQueue: 0,
+  pendingPick: false,
   tipShown: false,
   tipTimer: 0,
   resizes: 0,
@@ -902,7 +908,7 @@ function updateEnemy(e, dt) {
     } else {
       e.fire -= dt;
       if (e.fire <= 0) {
-        if (e.shots >= 2) e.leaving = true;
+        if (state.waveBudget <= 0 && e.t > 24) e.leaving = true;
         else e.phase = 0;
       }
     }
@@ -917,7 +923,7 @@ function updateEnemy(e, dt) {
         e.fire = 2 / rk;
         fireFan(e.x, e.y, 3, 0.3, bs * 0.92, "orb", 0.05);
       }
-      if (state.waveBudget <= 0 && e.t > 8) e.leaving = true;
+      if (state.waveBudget <= 0 && e.t > 32) e.leaving = true;
     } else {
       e.y -= 100 * dt;
     }
@@ -931,7 +937,7 @@ function updateEnemy(e, dt) {
         e.fire = 2.15 / rk;
         fireFan(e.x, e.y, 5, 0.52, bs * 0.95, "orb", 0.04);
       }
-      if (state.waveBudget <= 0 && e.t > 10) e.leaving = true;
+      if (state.waveBudget <= 0 && e.t > 32) e.leaving = true;
     } else {
       e.y -= 95 * dt;
     }
@@ -968,7 +974,7 @@ function updateEnemy(e, dt) {
         e.burst = 1.25 / rk;
         fireFan(e.x, e.y, 3, 0.32, bs, "needle", 0.03);
       }
-      if (state.waveBudget <= 0 && e.t > 12) e.leaving = true;
+      if (state.waveBudget <= 0 && e.t > 36) e.leaving = true;
     } else {
       e.y -= 70 * dt;
     }
@@ -1228,6 +1234,34 @@ function fire() {
 function addScore(value) {
   state.score += Math.round(value);
   scoreEl.textContent = format(state.score);
+  checkPick();
+  updatePickProgress();
+}
+
+function updatePickProgress() {
+  const ratio = clamp(state.score / state.pickAt, 0, 1);
+  pickFill.style.width = `${(ratio * 100).toFixed(1)}%`;
+  pickNum.textContent = state.pickQueue > 0 ? "\u5C31\u7EEA" : format(Math.max(0, state.pickAt - state.score));
+}
+
+function checkPick() {
+  while (state.score >= state.pickAt) {
+    state.pickAt = Math.round(state.pickAt * 1.8);
+    state.pickQueue = Math.min(3, state.pickQueue + 1);
+  }
+}
+
+function openUpgrade() {
+  if (state.pendingPick) return;
+  if (!UPGRADES.some((u) => state.up[u.id] < u.max)) {
+    state.pickQueue = 0;
+    return;
+  }
+  state.pendingPick = true;
+  state.mode = "upgrade";
+  moveTarget = { x: player.x, y: player.y };
+  upKicker.textContent = "\u5206\u6570\u5956\u52B1 \xB7 SCORE REWARD";
+  showUpgrades();
 }
 function bumpChain() {
   state.chain = Math.min(10, state.chain + 1);
@@ -1441,19 +1475,11 @@ function waveClear() {
   burst(player.x, player.y - 20, C.heat, 18);
   sfx.clear();
 
-  // Upgrades every second wave; the wave in between is a short breather, so a
-  // run is not a card screen with bullets in between. Once everything is maxed
-  // the run simply continues, so endless waves never dead-end on a menu.
-  const canUpgrade = UPGRADES.some((u) => state.up[u.id] < u.max);
-  if (state.wave % 2 === 0 && canUpgrade) {
-    state.mode = "upgrade";
-    state.banner = { text: "WAVE CLEAR", sub: "\u5F3A\u5316 \xB7 UPGRADE", life: 1.2, max: 1.2 };
-    showUpgrades();
-  } else {
-    state.mode = "clear";
-    state.clearTimer = 1.9;
-    state.banner = { text: "WAVE CLEAR", sub: "\u8865\u7ED9 \xB7 +1 HP", life: 1.8, max: 1.8 };
-  }
+  // Waves roll into each other without a menu. Upgrades are bought by score
+  // and open their own paused card screen when the threshold is reached.
+  state.mode = "clear";
+  state.clearTimer = 1.9;
+  state.banner = { text: "WAVE CLEAR", sub: "\u8865\u7ED9 \xB7 +1 HP", life: 1.8, max: 1.8 };
 }
 var UPGRADES = [
   { id: "rate", name: "\u5C04\u901F", desc: "\u5C04\u51FB\u95F4\u9694 -16%", max: 5 },
@@ -1472,7 +1498,7 @@ function showUpgrades() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "up-card";
-    btn.innerHTML = '<span class="up-key">1</span><span><span class="up-name">\u7EE7\u7EED</span><span class="up-desc">\u706B\u529B\u5DF2\u6EE1\uFF0C\u8FDB\u5165\u4E0B\u4E00\u6CE2</span></span>';
+    btn.innerHTML = '<span class="up-key">1</span><span><span class="up-name">\u7EE7\u7EED</span><span class="up-desc">\u706B\u529B\u5DF2\u6EE1\uFF0C\u7EE7\u7EED\u6218\u6597</span></span>';
     btn.addEventListener("click", () => chooseUpgrade(null));
     upgradeOptions.append(btn);
   } else {
@@ -1498,14 +1524,17 @@ function chooseUpgrade(up) {
   if (up) state.up[up.id] += 1;
   upgradeEl.hidden = true;
   state.mode = "playing";
+  state.pendingPick = false;
+  state.pickQueue = Math.max(0, state.pickQueue - 1);
+  moveTarget = { x: player.x, y: player.y };
   updatePower();
-  startWave(state.wave + 1);
+  updatePickProgress();
 }
 function runSteps(count) {
   const dt = 1 / 120;
   try {
     for (let i = 0; i < count; i += 1) {
-      if (state.mode === "upgrade") {
+      if (state.mode === "upgrade" && !PARAMS.has("hold")) {
         const offers = UPGRADES.filter((u) => state.up[u.id] < u.max);
         chooseUpgrade(offers[0] || null);
       }
@@ -1596,6 +1625,10 @@ function resetRun() {
   state.boss = null;
   state.bossPending = false;
   state.pressure = 0.5;
+  state.pickAt = 12000;
+  state.pickQueue = 0;
+  state.pendingPick = false;
+  updatePickProgress();
   state.heavyCount = 0;
   state.splitCount = 0;
   state.wallCount = 0;
@@ -1615,6 +1648,9 @@ function resetRun() {
   moveTarget = { x: player.x, y: player.y };
   bossbar.hidden = true;
   chainEl.textContent = "";
+  upgradeEl.hidden = true;
+  state.pendingPick = false;
+  state.pickQueue = 0;
   tipEl.hidden = true;
   state.tipTimer = 0;
   grazeEl.textContent = "\u64E6\u5F39 0";
@@ -1627,6 +1663,8 @@ function startRun() {
   resetRun();
   const hp = Number(PARAMS.get("hp"));
   if (hp > 0) state.lives = clamp(Math.floor(hp), 1, LIVES);
+  const pick = Number(PARAMS.get("pick"));
+  if (pick > 0) state.pickAt = pick;
   state.mode = "playing";
   state.fireTimer = 0;
   startWave(START_WAVE);
@@ -1912,9 +1950,9 @@ function ensureAudio() {
 
       try {
         const conv = audio.createConvolver();
-        conv.buffer = makeImpulse(1.2, 2.2);
+        conv.buffer = makeImpulse(0.7, 2.6);
         const send = audio.createGain();
-        send.gain.value = 0.1;
+        send.gain.value = 0.04;
         master.connect(send).connect(conv).connect(comp);
       } catch {
         // Dry only if convolution is unavailable.
@@ -2069,9 +2107,10 @@ var sfx = {
     if (now - lastShotSound < 58) return;
     lastShotSound = now;
     const pan = panOf(player.x);
-    blip(rand(212, 238), 0.075, "triangle", 0.034, -95, pan, 0, 760);
-    noiseBand(0.025, 0.02, rand(1700, 2300), 0.8, pan);
-    sub(92, 0.06, 0.028, -22);
+    blip(rand(212, 238), 0.07, "triangle", 0.03, -95, pan, 0, 760);
+    blip(rand(1250, 1500), 0.03, "square", 0.014, -500, pan, 0, 3200);
+    noiseBand(0.03, 0.022, 3600, 0.7, pan);
+    sub(92, 0.06, 0.026, -22);
   },
   graze() {
     const now = performance.now();
@@ -2084,10 +2123,10 @@ var sfx = {
     sub(100, 0.1, 0.03, 20);
   },
   hit() {
-    sub(48, 0.6, 0.2, -22);
-    noiseHit(0.5, 0.16, 900);
-    noiseBand(0.08, 0.06, 3800, 0.7);
-    blip(115, 0.4, "sawtooth", 0.055, -60, 0, 0, 480);
+    sub(55, 0.3, 0.2, -18);
+    noiseHit(0.16, 0.13, 1400);
+    noiseBand(0.05, 0.07, 2600, 0.8);
+    blip(120, 0.14, "sawtooth", 0.05, -60, 0, 0, 520);
   },
   alarm() {
     sub(62, 0.18, 0.1, -12);
@@ -2097,16 +2136,16 @@ var sfx = {
   },
   explode(big) {
     if (big) {
-      sub(50, 1.1, 0.24, -26);
-      noiseHit(0.95, 0.17, 1200);
-      noiseBand(0.5, 0.1, 320, 0.6, 0.15, 0.01);
-      noiseBand(0.09, 0.07, 4200, 0.8);
-      blip(96, 0.6, "sine", 0.09, -46, 0, 0, 380);
+      sub(52, 0.5, 0.24, -24);
+      noiseHit(0.42, 0.16, 1100);
+      noiseBand(0.22, 0.08, 420, 0.6, 0.1, 0.005);
+      noiseBand(0.06, 0.08, 3600, 0.9);
+      blip(100, 0.3, "sine", 0.07, -50, 0, 0, 420);
     } else {
-      sub(86, 0.24, 0.1, -44);
-      noiseHit(0.24, 0.07, 1700);
-      noiseBand(0.06, 0.035, 3600, 0.8);
-      blip(230, 0.14, "triangle", 0.025, -110, 0, 0, 700);
+      sub(90, 0.16, 0.09, -40);
+      noiseHit(0.12, 0.06, 1600);
+      noiseBand(0.04, 0.035, 3200, 0.8);
+      blip(230, 0.1, "triangle", 0.022, -90, 0, 0, 900);
     }
   },
   pickup(type) {
@@ -2717,7 +2756,7 @@ function draw() {
       box.style.cssText = "position:fixed;left:8px;top:64px;z-index:90;margin:0;padding:4px 6px;background:rgba(0,0,0,0.7);color:#9fe;font:10px monospace;white-space:pre";
       document.body.append(box);
     }
-    box.textContent = `t=${state.time.toFixed(1)} ${state.mode} W${state.wave} e=${enemies.length} eb=${ebullets.length} pb=${pbullets.length} boss=${state.boss ? Math.round(state.boss.hp) : "-"} score=${state.score} p=${Math.round(player.x)},${Math.round(player.y)} ${Math.round(state.w)}x${state.h} dpr=${state.dpr} canvas=${canvas.width}x${canvas.height} rz=${state.resizes} dr=${state.draws}`;
+    box.textContent = `t=${state.time.toFixed(1)} ${state.mode} W${state.wave} e=${enemies.length} eb=${ebullets.length} pb=${pbullets.length} boss=${state.boss ? Math.round(state.boss.hp) : "-"} score=${state.score} p=${Math.round(player.x)},${Math.round(player.y)} up=${state.up.rate},${state.up.dmg},${state.up.stream} ${Math.round(state.w)}x${state.h} dpr=${state.dpr} canvas=${canvas.width}x${canvas.height} rz=${state.resizes} dr=${state.draws}`;
   }
 }
 function update(dt) {
@@ -2736,6 +2775,10 @@ function update(dt) {
     return;
   }
   if (state.mode !== "playing") return;
+  if (!state.pendingPick && state.pickQueue > 0) {
+    openUpgrade();
+    return;
+  }
   state.threatTimer -= dt;
   if (state.threatTimer <= 0) {
     state.threatTimer = 0.45;
