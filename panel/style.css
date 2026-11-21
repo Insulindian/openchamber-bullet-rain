@@ -237,6 +237,21 @@ canvas {
 .pip:not(.spent) { background: var(--bone); border-color: var(--bone); }
 .pip.spent { background: rgba(233, 229, 216, 0.05); border-color: rgba(233, 229, 216, 0.16); }
 
+.armor { display: flex; gap: 2px; }
+
+.armor b {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(134, 217, 255, 0.7);
+  background: rgba(134, 217, 255, 0.35);
+}
+
+.armor b.spent {
+  background: transparent;
+  border-color: rgba(134, 217, 255, 0.2);
+}
+
 .pips.low .pip:not(.spent) {
   background: #ff5f6d;
   border-color: #ff5f6d;
@@ -616,6 +631,8 @@ canvas {
   flex-direction: column;
   gap: 7px;
   width: min(100%, 380px);
+  max-height: 64vh;
+  overflow-y: auto;
 }
 
 .up-card {

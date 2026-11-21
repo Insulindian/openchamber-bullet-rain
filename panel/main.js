@@ -1880,6 +1880,9 @@ ${GUEST_UI_LOOK_CSS}`;
   var meterRate = $("meter-rate");
   var meterDmg = $("meter-dmg");
   var meterStream = $("meter-stream");
+  var meterArmor = $("meter-armor");
+  var meterHp = $("meter-hp");
+  var armorEl = $("armor");
   var pickFill = $("pick-fill");
   var pickNum = $("pick-num");
   var bossbar = $("bossbar");
@@ -1988,6 +1991,9 @@ ${GUEST_UI_LOOK_CSS}`;
     chainTimer: 0,
     graze: 0,
     lives: LIVES,
+    maxHp: LIVES,
+    armor: 0,
+    armorMax: 0,
     wave: 0,
     zone: 0,
     invuln: 0,
@@ -2004,6 +2010,7 @@ ${GUEST_UI_LOOK_CSS}`;
     heavyCount: 0,
     splitCount: 0,
     wallCount: 0,
+    carrierCount: 0,
     packHistory: [],
     eliteCooldown: 2,
     fireTimer: 0,
@@ -2011,10 +2018,11 @@ ${GUEST_UI_LOOK_CSS}`;
     threatTimer: 0,
     shield: 0,
     buff: { over: 0, slow: 0 },
-    up: { rate: 0, dmg: 0, stream: 0 },
+    up: { rate: 0, dmg: 0, stream: 0, armor: 0, hp: 0 },
     pickAt: 12e3,
     pickQueue: 0,
     pendingPick: false,
+    zoneBag: [],
     tipShown: false,
     tipTimer: 0,
     runStartWave: 1,
@@ -2072,10 +2080,31 @@ ${GUEST_UI_LOOK_CSS}`;
       hue: [186, 62, 96],
       accent: "#ff7d92",
       dust: 0.17
+    },
+    {
+      name: "\u9508\u5E26",
+      code: "RUST",
+      top: "#0b0705",
+      mid: "#171009",
+      bottom: "#060404",
+      hue: [170, 104, 58],
+      accent: "#e0a060",
+      dust: 0.2
+    },
+    {
+      name: "\u6781\u5149",
+      code: "AURORA",
+      top: "#050a09",
+      mid: "#081512",
+      bottom: "#040807",
+      hue: [86, 176, 150],
+      accent: "#8ff0cf",
+      dust: 0.12
     }
   ];
   var backdrop = {
     zone: -1,
+    def: null,
     scroll: 0,
     nebula: null,
     sky: null,
@@ -2191,19 +2220,35 @@ ${GUEST_UI_LOOK_CSS}`;
   }
   function setZone(index, force = false) {
     if (!force && index === backdrop.zone) return;
-    const z = ZONES[(index % ZONES.length + ZONES.length) % ZONES.length];
+    const norm = (index % ZONES.length + ZONES.length) % ZONES.length;
+    const base = ZONES[norm];
+    const shift = rand(-16, 16);
+    const z = {
+      ...base,
+      hue: base.hue.map((v2) => clamp(Math.round(v2 + shift), 0, 255))
+    };
     backdrop.zone = index;
-    state.zone = (index % ZONES.length + ZONES.length) % ZONES.length;
+    backdrop.def = z;
+    state.zone = norm;
     backdrop.nebula = bakeNebula(z);
     backdrop.stars = makeStars();
     backdrop.debris = makeDebris(z);
     backdrop.dust = makeDust(z);
     backdrop.planet = makePlanet(z);
     backdrop.scroll = 0;
-    state.zone = backdrop.zone % ZONES.length;
   }
   function zoneNow() {
-    return ZONES[state.zone] || ZONES[0];
+    return backdrop.def || ZONES[state.zone] || ZONES[0];
+  }
+  function nextZone() {
+    if (!state.zoneBag || state.zoneBag.length === 0) {
+      const bag = ZONES.map((_, i) => i).sort(() => Math.random() - 0.5);
+      if (bag.length > 1 && bag[0] === state.zone) {
+        [bag[0], bag[1]] = [bag[1], bag[0]];
+      }
+      state.zoneBag = bag;
+    }
+    return state.zoneBag.pop();
   }
   function buildSky() {
     const z = zoneNow();
@@ -2375,7 +2420,10 @@ ${GUEST_UI_LOOK_CSS}`;
     gun: { tier: 4, r: 17, hp: 16, value: 3, color: "#ffb45e" },
     hunter: { tier: 5, r: 21, hp: 24, value: 5, color: "#6fd8ff" },
     split: { tier: 6, r: 25, hp: 40, value: 7, color: "#c084ff" },
-    fort: { tier: 7, r: 31, hp: 82, value: 12, color: "#ff4f63" }
+    fort: { tier: 7, r: 31, hp: 82, value: 12, color: "#ff4f63" },
+    orbiter: { tier: 5, r: 22, hp: 30, value: 6, color: "#5ee6c8" },
+    lancer: { tier: 6, r: 24, hp: 38, value: 7, color: "#ff9d5c" },
+    carrier: { tier: 8, r: 36, hp: 130, value: 15, color: "#ffd166" }
   };
   var BOSSES = [
     { name: "\u68F1\u955C", code: "PRISM", color: "#86d9ff" },
@@ -2420,6 +2468,13 @@ ${GUEST_UI_LOOK_CSS}`;
       span: Math.min(state.w * 0.3, 150)
     };
     e.cx = clamp(x, e.span + e.r, state.w - e.span - e.r);
+    if (kind === "orbiter") {
+      e.orbitR = Math.min(state.w * 0.24, 110);
+      e.cx = clamp(x, e.orbitR + e.r, state.w - e.orbitR - e.r);
+      e.cy = e.stopY;
+    } else if (kind === "carrier") {
+      e.burst = 3.5;
+    }
     enemies.push(e);
     return e;
   }
@@ -2429,7 +2484,7 @@ ${GUEST_UI_LOOK_CSS}`;
     const hp = 320 + state.wave * 46 + state.wave * state.wave * 6;
     const e = {
       kind: "boss",
-      tier: 8,
+      tier: 9,
       variant,
       r: 48,
       color: spec.color,
@@ -2815,6 +2870,68 @@ ${GUEST_UI_LOOK_CSS}`;
       } else {
         e.y -= 70 * dt;
       }
+    } else if (e.kind === "orbiter") {
+      if (e.y < e.stopY) {
+        e.y += 74 * dt;
+      } else if (!e.leaving) {
+        e.x = e.cx + Math.cos(e.t * 0.8) * e.orbitR;
+        e.y = e.cy + Math.sin(e.t * 1.6) * 16;
+        e.fire -= dt;
+        if (e.fire <= 0) {
+          e.fire = 1.9 / rk;
+          e.spin += 0.5;
+          for (let i = 0; i < 3; i += 1) shootOrb(e.x, e.y, e.spin + i / 3 * TAU, bs * 0.8);
+        }
+        if (state.waveBudget <= 0 && e.t > 30) e.leaving = true;
+      } else {
+        e.y -= 90 * dt;
+      }
+    } else if (e.kind === "lancer") {
+      if (e.y < e.stopY) {
+        e.y += 92 * dt;
+      } else if (e.phase === 0) {
+        e.phase = 1;
+        e.charge = 0.8 / rk;
+      } else if (e.phase === 1) {
+        e.charge -= dt;
+        e.aim = aimAt(e.x, e.y);
+        if (e.charge <= 0) {
+          fireFan(e.x, e.y, 5, 0.34, bs * 1.45, "needle", 0.02, e.aim);
+          e.phase = 2;
+          e.fire = 1.5 / rk;
+          state.shake = Math.max(state.shake, 2);
+        }
+      } else {
+        e.fire -= dt;
+        if (e.fire <= 0) {
+          if (state.waveBudget <= 0 && e.t > 28) e.leaving = true;
+          else e.phase = 0;
+        }
+      }
+      if (e.leaving) e.y -= 90 * dt;
+    } else if (e.kind === "carrier") {
+      if (e.y < e.stopY) {
+        e.y += 48 * dt;
+      } else if (!e.leaving) {
+        e.x += Math.sin(e.t * 0.4) * 28 * dt;
+        e.fire -= dt;
+        if (e.fire <= 0) {
+          e.fire = 2.9 / rk;
+          fireRing(e.x, e.y, 12, bs * 0.55, e.spin, 0.85);
+          e.spin += 0.2;
+        }
+        e.burst -= dt;
+        if (e.burst <= 0 && enemies.length < 18) {
+          e.burst = 4.5;
+          for (const side of [-1, 1]) {
+            const d = spawnEnemy("drone", e.x + side * 30, e.y + 12);
+            d.free = { vx: side * 55, vy: 80 };
+          }
+        }
+        if (state.waveBudget <= 0 && e.t > 34) e.leaving = true;
+      } else {
+        e.y -= 60 * dt;
+      }
     }
     if (e.t > 0.5 && (e.y > state.h + 80 || e.y < -220 || e.x < -160 || e.x > state.w + 160)) e.dead = true;
   }
@@ -2827,7 +2944,10 @@ ${GUEST_UI_LOOK_CSS}`;
     { id: "arc", cost: 12, minWave: 3, weight: 1.3 },
     { id: "split", cost: 14, minWave: 4, weight: 0.8 },
     { id: "heavy", cost: 12, minWave: 5, weight: 0.5 },
-    { id: "wall", cost: 16, minWave: 7, weight: 0.4 }
+    { id: "orbit", cost: 14, minWave: 6, weight: 0.8 },
+    { id: "lance", cost: 15, minWave: 7, weight: 0.7 },
+    { id: "wall", cost: 16, minWave: 7, weight: 0.4 },
+    { id: "carrier", cost: 18, minWave: 9, weight: 0.5 }
   ];
   function weightedFormation(options) {
     const recent = state.packHistory;
@@ -2877,6 +2997,16 @@ ${GUEST_UI_LOOK_CSS}`;
     } else if (id === "wall") {
       for (let i = 0; i < 5; i += 1) spawnEnemy("gun", w * 0.14 + i * w * 0.18, -40 - Math.abs(i - 2) * 22);
       spawnEnemy("rusher", w * 0.5, -150);
+    } else if (id === "orbit") {
+      spawnEnemy("orbiter", w * 0.3, -50);
+      spawnEnemy("orbiter", w * 0.7, -85);
+    } else if (id === "lance") {
+      spawnEnemy("lancer", w * 0.3, -50);
+      spawnEnemy("lancer", w * 0.7, -75);
+    } else if (id === "carrier") {
+      spawnEnemy("carrier", w * 0.5, -95);
+      spawnEnemy("drone", w * 0.24, -40);
+      spawnEnemy("drone", w * 0.76, -40);
     }
   }
   function updateBullets(dt) {
@@ -2902,7 +3032,7 @@ ${GUEST_UI_LOOK_CSS}`;
   function rollPickup() {
     const list = Object.entries(PICKUPS).filter(([id]) => {
       if (id === "shield" && state.shield > 0) return false;
-      if (id === "repair" && state.lives >= LIVES) return false;
+      if (id === "repair" && state.lives >= state.maxHp) return false;
       return true;
     });
     const total = list.reduce((sum, [, spec]) => sum + spec.weight, 0);
@@ -2937,7 +3067,7 @@ ${GUEST_UI_LOOK_CSS}`;
     if (Math.random() < chance) dropPickup(e.x, e.y);
   }
   function healPlayer(amount, rewardIfFull) {
-    if (state.lives >= LIVES) {
+    if (state.lives >= state.maxHp) {
       if (rewardIfFull) {
         addScore(400);
         popups.push({ x: player.x, y: player.y - 28, text: "+400", life: 0.9, max: 0.9, color: C.bone });
@@ -2945,7 +3075,7 @@ ${GUEST_UI_LOOK_CSS}`;
       }
       return false;
     }
-    state.lives = Math.min(LIVES, state.lives + amount);
+    state.lives = Math.min(state.maxHp, state.lives + amount);
     state.pressure = clamp(state.pressure + 0.05, 0, 1);
     updateHud();
     hpEl.classList.add("is-heal");
@@ -3205,6 +3335,17 @@ ${GUEST_UI_LOOK_CSS}`;
       updateBuffs();
       return;
     }
+    if (state.armor > 0) {
+      state.armor -= 1;
+      state.invuln = 1.2;
+      state.shake = 10;
+      state.flash = 0.5;
+      ebullets = ebullets.filter((b) => Math.hypot(b.x - player.x, b.y - player.y) > 130);
+      burst(player.x, player.y, C.cold, 18);
+      sfx.shieldBreak();
+      updateHud();
+      return;
+    }
     state.shake = 18;
     state.flash = 1;
     state.slow = 0.5;
@@ -3236,28 +3377,32 @@ ${GUEST_UI_LOOK_CSS}`;
   function startWave(n) {
     state.wave = n;
     markWave(n);
+    if (state.armorMax > 0) {
+      state.armor = state.armorMax;
+      updateHud();
+    }
     state.heavyCount = 0;
     state.splitCount = 0;
     state.wallCount = 0;
+    state.carrierCount = 0;
     state.packHistory = [];
     state.eliteCooldown = 2;
     state.waveBudget = Math.round((30 + n * 9) * (0.9 + state.pressure * 0.2));
     state.spawnTimer = 1;
     state.waveQuiet = 0;
     state.bossPending = n % 4 === 0;
-    const totalUp = state.up.rate + state.up.dmg + state.up.stream;
+    const totalUp = state.up.rate + state.up.dmg + state.up.stream + state.up.armor + state.up.hp;
     if (totalUp < Math.floor(n / 3)) state.pickQueue = Math.min(3, state.pickQueue + 1);
-    const zoneIndex = Math.floor((n - 1) / 4);
-    const changed = zoneIndex !== backdrop.zone;
-    if (changed) setZone(zoneIndex);
-    if (changed && backdrop.planet) backdrop.planet.y = -backdrop.planet.r * 1.2;
+    const changeZone = n === 1 || (n - 1) % 5 === 0;
+    const changed = changeZone;
+    if (changeZone) setZone(nextZone());
     const z = zoneNow();
     if (state.bossPending) {
       state.waveBudget = 0;
       state.spawnTimer = 1.8;
       state.banner = { text: `WAVE ${String(n).padStart(2, "0")}`, sub: `\u6838\u5FC3\u63A5\u8FD1 \xB7 ${z.name}`, life: 1.8, max: 1.8 };
     } else if (changed) {
-      state.banner = { text: z.name, sub: `ZONE ${String(zoneIndex + 1).padStart(2, "0")} \xB7 ${z.code}`, life: 2.2, max: 2.2 };
+      state.banner = { text: z.name, sub: `SECTOR \xB7 ${z.code}`, life: 2.2, max: 2.2 };
     } else {
       state.banner = { text: `WAVE ${String(n).padStart(2, "0")}`, sub: z.code, life: 1.5, max: 1.5 };
     }
@@ -3269,6 +3414,7 @@ ${GUEST_UI_LOOK_CSS}`;
     if (id === "heavy") state.heavyCount += 1;
     else if (id === "split") state.splitCount += 1;
     else if (id === "wall") state.wallCount += 1;
+    else if (id === "carrier") state.carrierCount += 1;
   }
   function updateWave(dt) {
     if (state.bossPending) {
@@ -3286,13 +3432,14 @@ ${GUEST_UI_LOOK_CSS}`;
         const heavyMax = state.wave >= 12 && state.pressure > 0.6 ? 2 : 1;
         const splitMax = state.wave >= 10 ? 2 : 1;
         const eliteReady = state.eliteCooldown <= 0;
-        const ELITE = ["heavy", "split", "wall"];
+        const ELITE = ["heavy", "split", "wall", "carrier"];
         const options = FORMATIONS.filter((f) => {
           if (f.minWave > state.wave || f.cost > state.waveBudget) return false;
           if (ELITE.includes(f.id) && !eliteReady) return false;
           if (f.id === "heavy" && state.heavyCount >= heavyMax) return false;
           if (f.id === "split" && state.splitCount >= splitMax) return false;
           if (f.id === "wall" && state.wallCount >= 1) return false;
+          if (f.id === "carrier" && state.carrierCount >= 1) return false;
           return true;
         });
         if (options.length === 0) {
@@ -3302,7 +3449,7 @@ ${GUEST_UI_LOOK_CSS}`;
           spawnFormation(pack.id);
           countSpawn(pack.id);
           state.waveBudget -= pack.cost;
-          if (ELITE.includes(pack.id)) state.eliteCooldown = 3;
+          if (ELITE.includes(pack.id)) state.eliteCooldown = 2;
           else state.eliteCooldown = Math.max(0, state.eliteCooldown - 1);
           state.packHistory.push(pack.id);
           if (state.packHistory.length > 4) state.packHistory.shift();
@@ -3340,12 +3487,26 @@ ${GUEST_UI_LOOK_CSS}`;
   var UPGRADES = [
     { id: "rate", name: "\u5C04\u901F", desc: "\u5C04\u51FB\u95F4\u9694 -16%", max: 5 },
     { id: "dmg", name: "\u4F24\u5BB3", desc: "\u6BCF\u53D1\u4F24\u5BB3 +1", max: 5 },
-    { id: "stream", name: "\u591A\u91CD\u5C04\u51FB", desc: "\u5F39\u9053 +1", max: 3 }
+    { id: "stream", name: "\u591A\u91CD\u5C04\u51FB", desc: "\u5F39\u9053 +1", max: 3 },
+    { id: "armor", name: "\u9632\u5FA1", desc: "\u62A4\u7532 +1\uFF0C\u6BCF\u6CE2\u5F00\u59CB\u8865\u6EE1", max: 3 },
+    { id: "hp", name: "\u8840\u91CF", desc: "\u751F\u547D\u4E0A\u9650 +1\uFF0C\u5E76\u56DE\u590D 1", max: 3 }
   ];
   function upgradeDetail(id) {
     if (id === "rate") return `\u73B0 ${Math.round(fireInterval() * 1e3)}ms`;
     if (id === "dmg") return `\u73B0 ${damage()}/\u53D1`;
+    if (id === "armor") return `\u73B0 ${state.armorMax} \u5C42`;
+    if (id === "hp") return `\u73B0 ${state.maxHp} \u70B9`;
     return `\u73B0 ${streamCount()} \u9053`;
+  }
+  function applyUpgrade(id) {
+    state.up[id] += 1;
+    if (id === "hp") {
+      state.maxHp += 1;
+      state.lives = Math.min(state.maxHp, state.lives + 1);
+    } else if (id === "armor") {
+      state.armorMax += 1;
+      state.armor = state.armorMax;
+    }
   }
   function showUpgrades() {
     const offers = UPGRADES.filter((u) => state.up[u.id] < u.max);
@@ -3377,12 +3538,13 @@ ${GUEST_UI_LOOK_CSS}`;
   }
   function chooseUpgrade(up) {
     sfx.confirm();
-    if (up) state.up[up.id] += 1;
+    if (up) applyUpgrade(up.id);
     upgradeEl.hidden = true;
     state.mode = "playing";
     state.pendingPick = false;
     state.pickQueue = Math.max(0, state.pickQueue - 1);
     moveTarget = { x: player.x, y: player.y };
+    updateHud();
     updatePower();
     updatePickProgress();
   }
@@ -3456,6 +3618,9 @@ ${GUEST_UI_LOOK_CSS}`;
 <span><i style="background:#6fd8ff"></i>\u6E38\u730E \xB7 \u4E94\u8FDE</span>
 <span><i style="background:#c084ff"></i>\u5206\u88C2 \xB7 \u87BA\u65CB</span>
 <span><i style="background:#ff4f63"></i>\u5821\u5792 \xB7 \u73AF\u5F62</span>
+<span><i style="background:#5ee6c8"></i>\u6E38\u661F \xB7 \u73AF\u7ED5</span>
+<span><i style="background:#ff9d5c"></i>\u957F\u67AA \xB7 \u9AD8\u901F\u9488</span>
+<span><i style="background:#ffd166"></i>\u6BCD\u8230 \xB7 \u653E\u5C0F\u673A</span>
 </div>`;
   function toMenu() {
     state.mode = "menu";
@@ -3467,7 +3632,7 @@ ${GUEST_UI_LOOK_CSS}`;
     showGate({
       kicker: "VERTICAL DANMAKU",
       title: "\u5F39\u96E8",
-      text: `\u81EA\u52A8\u5C04\u51FB\uFF0C\u51FB\u7834\u654C\u673A\uFF0C\u8EB2\u5F00\u5F39\u5E55\u3002<br>\u5206\u6570\u8FBE\u5230\u9608\u503C\u65F6\u6682\u505C\u9009\u62E9\u5F3A\u5316\uFF1A<strong>\u5C04\u901F\u3001\u4F24\u5BB3\u3001\u591A\u91CD\u5C04\u51FB</strong>\u3002<br>\u6700\u9AD8 <strong>\u7B2C ${bestWave} \u6CE2</strong> \xB7 \u6700\u4F73 <strong>${format(best)}</strong>\u3002${MENU_LEGEND}`,
+      text: `\u81EA\u52A8\u5C04\u51FB\uFF0C\u51FB\u7834\u654C\u673A\uFF0C\u8EB2\u5F00\u5F39\u5E55\u3002<br>\u5206\u6570\u8FBE\u5230\u9608\u503C\u65F6\u6682\u505C\u9009\u62E9\u5F3A\u5316\uFF1A<strong>\u5C04\u901F\u3001\u4F24\u5BB3\u3001\u591A\u91CD\u5C04\u51FB\u3001\u9632\u5FA1\u3001\u8840\u91CF</strong>\u3002<br>\u6700\u9AD8 <strong>\u7B2C ${bestWave} \u6CE2</strong> \xB7 \u6700\u4F73 <strong>${format(best)}</strong>\u3002${MENU_LEGEND}`,
       actions: bestWave > 1 ? [
         { label: `\u7EE7\u7EED \u7B2C ${bestWave} \u6CE2`, primary: true, run: () => startRun(bestWave) },
         { label: "\u4ECE\u7B2C 1 \u6CE2\u5F00\u59CB", run: () => startRun(1) }
@@ -3492,11 +3657,16 @@ ${GUEST_UI_LOOK_CSS}`;
     state.pickAt = 12e3;
     state.pickQueue = 0;
     state.pendingPick = false;
+    state.zoneBag = [];
     updatePickProgress();
     state.heavyCount = 0;
     state.splitCount = 0;
     state.wallCount = 0;
-    state.up = { rate: 0, dmg: 0, stream: 0 };
+    state.carrierCount = 0;
+    state.up = { rate: 0, dmg: 0, stream: 0, armor: 0, hp: 0 };
+    state.maxHp = LIVES;
+    state.armor = 0;
+    state.armorMax = 0;
     enemies = [];
     ebullets = [];
     pbullets = [];
@@ -3525,7 +3695,7 @@ ${GUEST_UI_LOOK_CSS}`;
     const grant = Math.min(12, Math.floor(wave / 3));
     for (let i = 0; i < grant; i += 1) {
       const up = UPGRADES[i % UPGRADES.length];
-      if (state.up[up.id] < up.max) state.up[up.id] += 1;
+      if (state.up[up.id] < up.max) applyUpgrade(up.id);
     }
   }
   function startRun(fromWave) {
@@ -3537,7 +3707,7 @@ ${GUEST_UI_LOOK_CSS}`;
     state.runStartWave = wave;
     updatePower();
     const hp = Number(PARAMS.get("hp"));
-    if (hp > 0) state.lives = clamp(Math.floor(hp), 1, LIVES);
+    if (hp > 0) state.lives = clamp(Math.floor(hp), 1, state.maxHp);
     const pick = Number(PARAMS.get("pick"));
     if (pick > 0) state.pickAt = pick;
     state.mode = "playing";
@@ -3589,9 +3759,9 @@ ${GUEST_UI_LOOK_CSS}`;
   function updateHud() {
     scoreEl.textContent = format(state.score);
     bestEl.textContent = format(best);
-    if (livesEl.children.length !== LIVES) {
+    if (livesEl.children.length !== state.maxHp) {
       livesEl.replaceChildren();
-      for (let i = 0; i < LIVES; i += 1) {
+      for (let i = 0; i < state.maxHp; i += 1) {
         const pip = document.createElement("span");
         pip.className = "pip";
         livesEl.append(pip);
@@ -3599,8 +3769,18 @@ ${GUEST_UI_LOOK_CSS}`;
     }
     for (let i = 0; i < livesEl.children.length; i += 1) livesEl.children[i].classList.toggle("spent", i >= state.lives);
     livesEl.classList.toggle("low", state.lives === 1);
-    hpNum.textContent = `${state.lives}/${LIVES}`;
+    hpNum.textContent = `${state.lives}/${state.maxHp}`;
+    renderArmor();
     updateWaveLabel();
+  }
+  function renderArmor() {
+    armorEl.hidden = state.armorMax <= 0;
+    armorEl.replaceChildren();
+    for (let i = 0; i < state.armorMax; i += 1) {
+      const pip = document.createElement("b");
+      if (i >= state.armor) pip.className = "spent";
+      armorEl.append(pip);
+    }
   }
   function renderMeters() {
     const fill = (el2, value, max, bonus) => {
@@ -3619,6 +3799,8 @@ ${GUEST_UI_LOOK_CSS}`;
     fill(meterRate, state.up.rate, 5);
     fill(meterDmg, state.up.dmg, 5);
     fill(meterStream, state.up.stream, 3, state.buff.over > 0 ? 2 : 0);
+    fill(meterArmor, state.up.armor, 3);
+    fill(meterHp, state.up.hp, 3);
   }
   function updatePower() {
     powerEl.textContent = `\u706B\u529B ${power()}`;
@@ -3685,7 +3867,7 @@ ${GUEST_UI_LOOK_CSS}`;
       const key = event.key.toLowerCase();
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) event.preventDefault();
       if (state.mode === "upgrade") {
-        if (key === "1" || key === "2" || key === "3") {
+        if (["1", "2", "3", "4", "5"].includes(key)) {
           const card = upgradeOptions.children[Number(key) - 1];
           if (card) card.click();
         }
@@ -4211,6 +4393,55 @@ ${GUEST_UI_LOOK_CSS}`;
       ctx.beginPath();
       ctx.arc(0, 0, 2.6, 0, TAU);
       ctx.fill();
+    } else if (e.kind === "orbiter") {
+      ctx.lineWidth = 1.9;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.82, 0, TAU);
+      fillHull(color);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.82, 0);
+      ctx.lineTo(r * 0.82, 0);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      for (let i = 0; i < 3; i += 1) {
+        const a = e.t * 1.4 + i / 3 * TAU;
+        ctx.fillRect(Math.cos(a) * r * 0.98 - 2.2, Math.sin(a) * r * 0.98 - 2.2, 4.4, 4.4);
+      }
+    } else if (e.kind === "lancer") {
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, r * 1.45);
+      ctx.lineTo(r * 0.4, r * 0.2);
+      ctx.lineTo(r * 0.72, -r * 0.5);
+      ctx.lineTo(0, -r * 1.1);
+      ctx.lineTo(-r * 0.72, -r * 0.5);
+      ctx.lineTo(-r * 0.4, r * 0.2);
+      ctx.closePath();
+      fillHull(color);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, r * 1.2);
+      ctx.lineTo(0, -r * 0.85);
+      ctx.stroke();
+      ctx.strokeRect(-r * 0.95, -r * 0.3, r * 0.28, r * 0.6);
+      ctx.strokeRect(r * 0.67, -r * 0.3, r * 0.28, r * 0.6);
+    } else if (e.kind === "carrier") {
+      ctx.lineWidth = 2.2;
+      polygon(6, r, Math.PI / 6);
+      fillHull(color);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.rect(-r * 0.55, -r * 0.55, r * 1.1, r * 1.1);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      for (let i = -1; i <= 1; i += 1) ctx.fillRect(i * r * 0.34 - 2.4, -2.4, 4.8, 4.8);
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.75, r * 0.62);
+      ctx.lineTo(-r * 0.45, r * 0.62);
+      ctx.moveTo(r * 0.45, r * 0.62);
+      ctx.lineTo(r * 0.75, r * 0.62);
+      ctx.stroke();
     } else if (e.kind === "boss") {
       drawBossHull(e, line);
       if (e.windup > 0) {
@@ -4227,7 +4458,7 @@ ${GUEST_UI_LOOK_CSS}`;
         ctx.globalAlpha = 1;
       }
     }
-    if (e.tier <= 7) {
+    if (e.tier <= 8) {
       const n = e.tier;
       const gap = 5.2;
       const startX = -((n - 1) * gap) / 2;
@@ -4236,7 +4467,7 @@ ${GUEST_UI_LOOK_CSS}`;
       for (let i = 0; i < n; i += 1) ctx.fillRect(startX + i * gap - 1.6, r + 8, 3.2, 3.2);
       ctx.globalAlpha = 1;
     }
-    if (e.tier >= 5 && e.tier <= 7 && e.hp < e.max) {
+    if (e.tier >= 5 && e.tier <= 8 && e.hp < e.max) {
       const w = r * 1.9;
       ctx.globalAlpha = 0.22;
       ctx.fillStyle = C.bone;
